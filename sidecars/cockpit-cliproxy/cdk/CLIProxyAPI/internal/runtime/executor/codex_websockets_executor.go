@@ -218,9 +218,10 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body = normalizeCodexInstructions(body)
-	if helps.ShouldInjectImageGenerationTool(e.cfg, requestPath, opts.Headers) {
+	if helps.ShouldInjectImageGenerationToolForModel(e.cfg, baseModel, requestPath, opts.Headers) {
 		body = ensureImageGenerationTool(body, baseModel, auth)
 	}
+	body, useFullResponses := normalizeCodexResponsesLiteRequest(body, opts.Headers, auth, true)
 	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex websockets executor", body)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -235,6 +236,14 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	upstreamBody, identityState := applyCodexIdentityConfuseBody(e.cfg, auth, originalPayloadSource, body)
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg)
+	if isCodexAgentIdentityAuth(auth) {
+		assertion, errAssertion := codexAgentIdentityAssertionForWebsocket(ctx, e.cfg, auth, "")
+		if errAssertion != nil {
+			return resp, errAssertion
+		}
+		wsHeaders.Set("Authorization", assertion)
+	}
+	removeCodexResponsesLiteHeaderForFullResponse(wsHeaders, useFullResponses)
 	applyCodexIdentityConfuseHeaders(wsHeaders, &identityState)
 
 	var authID, authLabel, authType, authValue string
@@ -269,17 +278,38 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	conn, respHS, errDial := e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
 	if errDial != nil {
 		bodyErr := websocketHandshakeBody(respHS)
-		if respHS != nil {
-			helps.RecordAPIWebsocketUpgradeRejection(ctx, e.cfg, websocketUpgradeRequestLog(wsReqLog), respHS.StatusCode, respHS.Header.Clone(), bodyErr)
+		if respHS != nil && isCodexAgentIdentityAuth(auth) && isCodexAgentIdentityTaskInvalid(respHS.StatusCode, bodyErr) {
+			runtimeState, errState := codexAgentIdentityRuntimeFor(auth)
+			if errState != nil {
+				return resp, errState
+			}
+			runtimeState.mu.Lock()
+			expectedTaskID := runtimeState.credential.taskID
+			runtimeState.mu.Unlock()
+			assertion, errAssertion := codexAgentIdentityAssertionForWebsocket(ctx, e.cfg, auth, expectedTaskID)
+			if errAssertion != nil {
+				return resp, errAssertion
+			}
+			wsHeaders.Set("Authorization", assertion)
+			conn, respHS, errDial = e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
+			if errDial != nil {
+				bodyErr = websocketHandshakeBody(respHS)
+			}
 		}
-		if respHS != nil && respHS.StatusCode == http.StatusUpgradeRequired {
-			return e.CodexExecutor.Execute(ctx, auth, req, opts)
+		if errDial != nil {
+			bodyErr = redactCodexAgentIdentitySensitiveBody(auth, bodyErr)
+			if respHS != nil {
+				helps.RecordAPIWebsocketUpgradeRejection(ctx, e.cfg, websocketUpgradeRequestLog(wsReqLog), respHS.StatusCode, respHS.Header.Clone(), bodyErr)
+			}
+			if respHS != nil && respHS.StatusCode == http.StatusUpgradeRequired {
+				return e.CodexExecutor.Execute(ctx, auth, req, opts)
+			}
+			if respHS != nil && respHS.StatusCode > 0 {
+				return resp, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
+			}
+			helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
+			return resp, errDial
 		}
-		if respHS != nil && respHS.StatusCode > 0 {
-			return resp, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
-		}
-		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
-		return resp, errDial
 	}
 	recordAPIWebsocketHandshake(ctx, e.cfg, respHS)
 	reporter.StartResponseTTFT()
@@ -376,6 +406,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		}
 		reporter.MarkFirstResponseByte()
 		payload = applyCodexIdentityConfuseResponsePayload(payload, identityState)
+		payload = redactCodexAgentIdentitySensitiveBody(auth, payload)
 		helps.AppendAPIWebsocketResponse(ctx, e.cfg, payload)
 
 		if wsErr, ok := parseCodexWebsocketError(payload); ok {
@@ -387,6 +418,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		}
 
 		payload = normalizeCodexWebsocketCompletion(payload)
+		payload = normalizeCodexCollaborationSpawnAgentModel(payload)
 		eventType := gjson.GetBytes(payload, "type").String()
 		if eventType == "response.completed" {
 			if detail, ok := helps.ParseCodexUsage(payload); ok {
@@ -436,9 +468,10 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, body, requestedModel, requestPath, opts.Headers)
 	body = normalizeCodexInstructions(body)
-	if helps.ShouldInjectImageGenerationTool(e.cfg, requestPath, opts.Headers) {
+	if helps.ShouldInjectImageGenerationToolForModel(e.cfg, baseModel, requestPath, opts.Headers) {
 		body = ensureImageGenerationTool(body, baseModel, auth)
 	}
+	body, useFullResponses := normalizeCodexResponsesLiteRequest(body, opts.Headers, auth, true)
 	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex websockets executor", body)
 
 	httpURL := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -453,6 +486,14 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	upstreamBody, identityState := applyCodexIdentityConfuseBody(e.cfg, auth, userPayload, body)
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg)
+	if isCodexAgentIdentityAuth(auth) {
+		assertion, errAssertion := codexAgentIdentityAssertionForWebsocket(ctx, e.cfg, auth, "")
+		if errAssertion != nil {
+			return nil, errAssertion
+		}
+		wsHeaders.Set("Authorization", assertion)
+	}
+	removeCodexResponsesLiteHeaderForFullResponse(wsHeaders, useFullResponses)
 	applyCodexIdentityConfuseHeaders(wsHeaders, &identityState)
 
 	var authID, authLabel, authType, authValue string
@@ -490,20 +531,55 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 	}
 	if errDial != nil {
 		bodyErr := websocketHandshakeBody(respHS)
-		if respHS != nil {
-			helps.RecordAPIWebsocketUpgradeRejection(ctx, e.cfg, websocketUpgradeRequestLog(wsReqLog), respHS.StatusCode, respHS.Header.Clone(), bodyErr)
+		if respHS != nil && isCodexAgentIdentityAuth(auth) && isCodexAgentIdentityTaskInvalid(respHS.StatusCode, bodyErr) {
+			runtimeState, errState := codexAgentIdentityRuntimeFor(auth)
+			if errState != nil {
+				if sess != nil {
+					sess.reqMu.Unlock()
+				}
+				return nil, errState
+			}
+			runtimeState.mu.Lock()
+			expectedTaskID := runtimeState.credential.taskID
+			runtimeState.mu.Unlock()
+			assertion, errAssertion := codexAgentIdentityAssertionForWebsocket(ctx, e.cfg, auth, expectedTaskID)
+			if errAssertion != nil {
+				if sess != nil {
+					sess.reqMu.Unlock()
+				}
+				return nil, errAssertion
+			}
+			wsHeaders.Set("Authorization", assertion)
+			conn, respHS, errDial = e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
+			if respHS != nil {
+				upstreamHeaders = respHS.Header.Clone()
+			}
+			if errDial != nil {
+				bodyErr = websocketHandshakeBody(respHS)
+			}
 		}
-		if respHS != nil && respHS.StatusCode == http.StatusUpgradeRequired {
-			return e.CodexExecutor.ExecuteStream(ctx, auth, req, opts)
+		if errDial != nil {
+			if respHS != nil {
+				helps.RecordAPIWebsocketUpgradeRejection(ctx, e.cfg, websocketUpgradeRequestLog(wsReqLog), respHS.StatusCode, respHS.Header.Clone(), bodyErr)
+			}
+			if respHS != nil && respHS.StatusCode == http.StatusUpgradeRequired {
+				if sess != nil {
+					sess.reqMu.Unlock()
+				}
+				return e.CodexExecutor.ExecuteStream(ctx, auth, req, opts)
+			}
+			if respHS != nil && respHS.StatusCode > 0 {
+				if sess != nil {
+					sess.reqMu.Unlock()
+				}
+				return nil, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
+			}
+			helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
+			if sess != nil {
+				sess.reqMu.Unlock()
+			}
+			return nil, errDial
 		}
-		if respHS != nil && respHS.StatusCode > 0 {
-			return nil, statusErr{code: respHS.StatusCode, msg: string(bodyErr)}
-		}
-		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
-		if sess != nil {
-			sess.reqMu.Unlock()
-		}
-		return nil, errDial
 	}
 	recordAPIWebsocketHandshake(ctx, e.cfg, respHS)
 	reporter.StartResponseTTFT()
@@ -645,6 +721,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			}
 			reporter.MarkFirstResponseByte()
 			payload = applyCodexIdentityConfuseResponsePayload(payload, identityState)
+			payload = redactCodexAgentIdentitySensitiveBody(auth, payload)
 			helps.AppendAPIWebsocketResponse(ctx, e.cfg, payload)
 
 			if wsErr, ok := parseCodexWebsocketError(payload); ok {
@@ -660,6 +737,7 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			}
 
 			payload = normalizeCodexWebsocketCompletion(payload)
+			payload = normalizeCodexCollaborationSpawnAgentModel(payload)
 			eventType := gjson.GetBytes(payload, "type").String()
 			if eventType == "response.completed" || eventType == "response.done" {
 				if detail, ok := helps.ParseCodexUsage(payload); ok {
@@ -892,6 +970,7 @@ func applyCodexWebsocketHeaders(ctx context.Context, headers http.Header, auth *
 	misc.EnsureHeader(headers, ginHeaders, "x-client-request-id", "")
 	misc.EnsureHeader(headers, ginHeaders, "x-responsesapi-include-timing-metrics", "")
 	misc.EnsureHeader(headers, ginHeaders, "Version", "")
+	copyCodexResponsesLiteHeader(headers, ginHeaders)
 	copyCodexAgtoolsDiagnosticHeaders(headers, ginHeaders)
 	if isAPIKey {
 		ensureHeaderWithPriority(headers, ginHeaders, "User-Agent", "", "")

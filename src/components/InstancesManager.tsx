@@ -43,6 +43,8 @@ import {
   parseFileCorruptedError,
   type FileCorruptedError,
 } from "./FileCorruptedModal";
+import { ModalErrorMessage, useModalErrorState } from "./ModalErrorMessage";
+import { scrollElementIntoView } from "../utils/reducedMotion";
 import { useEscClose } from "../hooks/useEscClose";
 import type { InstanceStoreState } from "../stores/createInstanceStore";
 import { showInstanceFloatingCardWindow } from "../services/floatingCardService";
@@ -57,6 +59,7 @@ import {
   saveCodexInstanceQuickConfig,
 } from "../services/codexInstanceService";
 import { CodexSpeedSelect } from "./codex/CodexSpeedSelect";
+import { SingleSelectDropdown } from "./SingleSelectDropdown";
 import type { CodexAppSpeed } from "../types/codex";
 
 type MessageState = { text: string; tone?: "error" };
@@ -71,10 +74,7 @@ type AccountLike = {
 type InstanceSortField = "createdAt" | "lastLaunchedAt";
 type SortDirection = "asc" | "desc";
 type StartInstanceOutcome =
-  | "started"
-  | "already-running"
-  | "missing-path"
-  | "failed";
+  "started" | "already-running" | "missing-path" | "failed";
 type AccountSelectPortalPosition = {
   top: number;
   left: number;
@@ -82,6 +82,66 @@ type AccountSelectPortalPosition = {
   maxHeight: number;
   placement: "top" | "bottom";
 };
+
+type BaseAccountSelectProps = {
+  value: string | null;
+  onChange: (nextId: string | null) => void;
+  allowUnbound?: boolean;
+  allowFollowCurrent?: boolean;
+  isFollowingCurrent?: boolean;
+  onFollowCurrent?: () => void;
+  disabled?: boolean;
+  missing?: boolean;
+  placeholder?: string;
+};
+
+type AccountMenuItemsRenderArgs<TAccount extends AccountLike> = {
+  visibleAccounts: TAccount[];
+  availableTags: string[];
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  tagFilter: string[];
+  onToggleTagFilter: (tag: string) => void;
+  onClearTagFilter: () => void;
+  value: string | null;
+  isFollowingCurrent?: boolean;
+  allowFollowCurrent?: boolean;
+  allowUnbound?: boolean;
+  onFollowCurrent?: () => void;
+  onChange: (nextId: string | null) => void;
+  onClose: () => void;
+  selectedAccount: TAccount | null;
+};
+
+type InlineAccountSelectProps<TAccount extends AccountLike> =
+  BaseAccountSelectProps & {
+    accounts: TAccount[];
+    launchMode: InstanceLaunchMode;
+    filterAccountsForLaunchMode: (
+      source: TAccount[],
+      launchMode: InstanceLaunchMode,
+    ) => TAccount[];
+    getAccountSearchText?: (account: TAccount) => string;
+    resolveAccountDisplayText: (account?: TAccount | null) => string;
+    isApiServiceBindId: (value?: string | null) => boolean;
+    resolveBoundAccount: (bindAccountId?: string | null) => {
+      account: TAccount | null;
+    };
+    renderAccountQuotaPreview: (account: TAccount) => ReactNode;
+    renderAccountBadge?: (account: TAccount) => ReactNode;
+    maskAccountText: (value?: string | null) => string;
+    resolveApiServiceLabel: () => string;
+    renderAccountMenuItems: (
+      args: AccountMenuItemsRenderArgs<TAccount>,
+    ) => ReactNode;
+    unboundLabel: string;
+    selectAccountLabel: string;
+    missingAccountLabel: string;
+    followCurrentLabel: string;
+    onOpenChange?: (open: boolean) => void;
+    instanceId?: string;
+    currentOpenId?: string | null;
+  };
 
 interface InstancesManagerProps<TAccount extends AccountLike> {
   instanceStore: InstanceStoreState;
@@ -100,7 +160,7 @@ interface InstancesManagerProps<TAccount extends AccountLike> {
     | "windsurf"
     | "kiro"
     | "cursor"
-    | "gemini"
+    | "grok"
     | "codebuddy"
     | "codebuddy_cn"
     | "qoder"
@@ -108,8 +168,13 @@ interface InstancesManagerProps<TAccount extends AccountLike> {
     | "trae_solo"
     | "trae_cn"
     | "trae_solo_cn"
-    | "workbuddy";
+    | "workbuddy"
+    | "zcode";
   onInstanceStarted?: (instance: InstanceProfile) => void | Promise<void>;
+  onInstanceStartError?: (
+    error: unknown,
+    instance: InstanceProfile,
+  ) => boolean | Promise<boolean>;
   resolveStartSuccessMessage?: (instance: InstanceProfile) => string;
   isAccountAllowedForLaunchMode?: (
     account: TAccount,
@@ -170,14 +235,18 @@ const resolveCodexQuickConfigPresetId = (
     return "default";
   }
   if (
-    modelContextWindow === CODEX_QUICK_CONFIG_PRESETS.preset_516k.modelContextWindow &&
-    autoCompactTokenLimit === CODEX_QUICK_CONFIG_PRESETS.preset_516k.autoCompactTokenLimit
+    modelContextWindow ===
+      CODEX_QUICK_CONFIG_PRESETS.preset_516k.modelContextWindow &&
+    autoCompactTokenLimit ===
+      CODEX_QUICK_CONFIG_PRESETS.preset_516k.autoCompactTokenLimit
   ) {
     return "preset_516k";
   }
   if (
-    modelContextWindow === CODEX_QUICK_CONFIG_PRESETS.preset_1m.modelContextWindow &&
-    autoCompactTokenLimit === CODEX_QUICK_CONFIG_PRESETS.preset_1m.autoCompactTokenLimit
+    modelContextWindow ===
+      CODEX_QUICK_CONFIG_PRESETS.preset_1m.modelContextWindow &&
+    autoCompactTokenLimit ===
+      CODEX_QUICK_CONFIG_PRESETS.preset_1m.autoCompactTokenLimit
   ) {
     return "preset_1m";
   }
@@ -224,9 +293,7 @@ const resolveAccountSelectPortalPosition = (
     ACCOUNT_SELECT_PORTAL_GAP -
     ACCOUNT_SELECT_PORTAL_SAFE_MARGIN;
   const spaceAbove =
-    rect.top -
-    ACCOUNT_SELECT_PORTAL_GAP -
-    ACCOUNT_SELECT_PORTAL_SAFE_MARGIN;
+    rect.top - ACCOUNT_SELECT_PORTAL_GAP - ACCOUNT_SELECT_PORTAL_SAFE_MARGIN;
   const placement: "top" | "bottom" =
     spaceBelow >= ACCOUNT_SELECT_PORTAL_MAX_HEIGHT || spaceBelow >= spaceAbove
       ? "bottom"
@@ -272,6 +339,269 @@ const isSameAccountSelectPortalPosition = (
   left?.maxHeight === right?.maxHeight &&
   left?.placement === right?.placement;
 
+const InlineAccountSelect = <TAccount extends AccountLike>({
+  value,
+  onChange,
+  accounts,
+  launchMode,
+  filterAccountsForLaunchMode,
+  getAccountSearchText,
+  resolveAccountDisplayText,
+  isApiServiceBindId,
+  resolveBoundAccount,
+  renderAccountQuotaPreview,
+  renderAccountBadge,
+  maskAccountText,
+  resolveApiServiceLabel,
+  renderAccountMenuItems,
+  allowUnbound = false,
+  allowFollowCurrent = false,
+  isFollowingCurrent = false,
+  onFollowCurrent,
+  onOpenChange,
+  disabled = false,
+  missing = false,
+  placeholder,
+  instanceId,
+  currentOpenId,
+  unboundLabel,
+  selectAccountLabel,
+  missingAccountLabel,
+  followCurrentLabel,
+}: InlineAccountSelectProps<TAccount>) => {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const portalMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeItemScrolledRef = useRef(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = Boolean(instanceId);
+  const isOpen = isControlled ? currentOpenId === instanceId : internalOpen;
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (!isControlled) {
+        setInternalOpen(nextOpen);
+      }
+      onOpenChange?.(nextOpen);
+    },
+    [isControlled, onOpenChange],
+  );
+  const [portalPos, setPortalPos] =
+    useState<AccountSelectPortalPosition | null>(null);
+  const [searchValue, setSearchValue] = useState("");
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const selectableAccounts = useMemo(
+    () => filterAccountsForLaunchMode(accounts, launchMode),
+    [accounts, filterAccountsForLaunchMode, launchMode],
+  );
+
+  const availableTags = useMemo(
+    () => collectInstanceAccountTags(selectableAccounts),
+    [selectableAccounts],
+  );
+  const visibleAccounts = useMemo(() => {
+    const normalizedQuery = searchValue.trim().toLowerCase();
+    const selectedTags = new Set(tagFilter.map(normalizeInstanceAccountTag));
+    return selectableAccounts.filter((account) => {
+      if (selectedTags.size > 0) {
+        const accountTags = (account.tags || [])
+          .map(normalizeInstanceAccountTag)
+          .filter(Boolean);
+        if (!accountTags.some((tag) => selectedTags.has(tag))) {
+          return false;
+        }
+      }
+      if (!normalizedQuery) return true;
+      const haystack = [
+        resolveAccountDisplayText(account),
+        account.email,
+        getAccountSearchText ? getAccountSearchText(account) : "",
+        ...(account.tags || []),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedQuery);
+    });
+  }, [
+    getAccountSearchText,
+    resolveAccountDisplayText,
+    searchValue,
+    selectableAccounts,
+    tagFilter,
+  ]);
+
+  const toggleTagFilter = useCallback((tag: string) => {
+    setTagFilter((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag],
+    );
+  }, []);
+
+  const updatePortalPos = useCallback((event?: Event) => {
+    const eventTarget = event?.target;
+    if (
+      event?.type === "scroll" &&
+      eventTarget instanceof Node &&
+      portalMenuRef.current?.contains(eventTarget)
+    ) {
+      return;
+    }
+    setPortalPos((prev) => {
+      const next = resolveAccountSelectPortalPosition(triggerRef.current);
+      return isSameAccountSelectPortalPosition(prev, next) ? prev : next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) return;
+    activeItemScrolledRef.current = false;
+    setSearchValue("");
+    setTagFilter([]);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePortalPos();
+
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const inTrigger = Boolean(
+        menuRef.current && menuRef.current.contains(target),
+      );
+      const inPortalMenu = Boolean(
+        portalMenuRef.current && portalMenuRef.current.contains(target),
+      );
+      if (!inTrigger && !inPortalMenu) {
+        setOpen(false);
+      }
+    };
+    // 使用 setTimeout 延迟添加监听器，避免与打开菜单的点击事件冲突
+    const timer = setTimeout(() => {
+      document.addEventListener("click", handleClick);
+    }, 0);
+    window.addEventListener("resize", updatePortalPos);
+    window.addEventListener("scroll", updatePortalPos, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("click", handleClick);
+      window.removeEventListener("resize", updatePortalPos);
+      window.removeEventListener("scroll", updatePortalPos, true);
+    };
+  }, [isOpen, setOpen, updatePortalPos]);
+
+  useEffect(() => {
+    if (!isOpen || !portalPos || !portalMenuRef.current) return;
+    if (activeItemScrolledRef.current) return;
+    activeItemScrolledRef.current = true;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const activeItem = portalMenuRef.current?.querySelector<HTMLElement>(
+        '[data-account-select-active="true"]',
+      );
+      activeItem?.scrollIntoView({
+        block: "nearest",
+        behavior: "auto",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isOpen, portalPos?.placement]);
+
+  useEffect(() => {
+    if (disabled && isOpen) {
+      setOpen(false);
+    }
+  }, [disabled, isOpen, setOpen]);
+
+  const isApiServiceSelected = isApiServiceBindId(value);
+  const selectedAccount = resolveBoundAccount(value).account;
+  const basePlaceholder =
+    placeholder || (allowUnbound ? unboundLabel : selectAccountLabel);
+  const selectedLabel = missing
+    ? missingAccountLabel
+    : isFollowingCurrent
+      ? maskAccountText(resolveAccountDisplayText(selectedAccount)) ||
+        followCurrentLabel
+      : isApiServiceSelected
+        ? resolveApiServiceLabel()
+        : maskAccountText(resolveAccountDisplayText(selectedAccount)) ||
+          basePlaceholder;
+  const selectedBadge =
+    !missing && selectedAccount ? renderAccountBadge?.(selectedAccount) : null;
+  const selectedQuota = selectedAccount
+    ? renderAccountQuotaPreview(selectedAccount)
+    : null;
+
+  return (
+    <div
+      className={`account-select ${disabled ? "disabled" : ""}`}
+      ref={menuRef}
+    >
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`account-select-trigger ${isOpen ? "open" : ""}`}
+        onClick={() => {
+          if (disabled) return;
+          setOpen(!isOpen);
+        }}
+        disabled={disabled}
+      >
+        <span className="account-select-content">
+          <span className="account-select-label-row">
+            <span className="account-select-label" title={selectedLabel}>
+              {selectedLabel}
+            </span>
+            {selectedBadge}
+          </span>
+          {selectedQuota && (
+            <span className="account-select-meta">{selectedQuota}</span>
+          )}
+        </span>
+        <span className="account-select-arrow">
+          <ChevronDown size={14} />
+        </span>
+      </button>
+      {isOpen && !disabled && portalPos
+        ? createPortal(
+            <div
+              className={`instances-page account-select-portal-root ${portalPos.placement === "top" ? "placement-top" : "placement-bottom"}`}
+              style={{
+                position: "fixed",
+                top: `${portalPos.top}px`,
+                left: `${portalPos.left}px`,
+                width: `${portalPos.width}px`,
+                ["--account-select-max-height" as string]: `${portalPos.maxHeight}px`,
+                zIndex: ACCOUNT_SELECT_PORTAL_Z_INDEX,
+              }}
+            >
+              <div ref={portalMenuRef} className="account-select-menu">
+                {renderAccountMenuItems({
+                  visibleAccounts,
+                  availableTags,
+                  searchValue,
+                  onSearchChange: setSearchValue,
+                  tagFilter,
+                  onToggleTagFilter: toggleTagFilter,
+                  onClearTagFilter: () => setTagFilter([]),
+                  value,
+                  isFollowingCurrent,
+                  allowFollowCurrent,
+                  allowUnbound,
+                  onFollowCurrent,
+                  onChange,
+                  onClose: () => setOpen(false),
+                  selectedAccount,
+                })}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+};
+
 const resolveInstanceSortStorageKeys = (
   appType: InstancesManagerProps<AccountLike>["appType"],
 ) => ({
@@ -315,6 +645,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   getAccountSearchText,
   appType = "antigravity",
   onInstanceStarted,
+  onInstanceStartError,
   resolveStartSuccessMessage,
   isAccountAllowedForLaunchMode,
   toolbarExtraActions,
@@ -348,6 +679,12 @@ export function InstancesManager<TAccount extends AccountLike>({
     useState<InstanceProfile | null>(null);
   const [deleteConfirmInstance, setDeleteConfirmInstance] =
     useState<InstanceProfile | null>(null);
+  const {
+    message: deleteInstanceError,
+    scrollKey: deleteInstanceErrorScrollKey,
+    report: reportDeleteInstanceError,
+    clear: clearDeleteInstanceError,
+  } = useModalErrorState();
   const [restartingAll, setRestartingAll] = useState(false);
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
@@ -360,21 +697,23 @@ export function InstancesManager<TAccount extends AccountLike>({
   const [formInitMode, setFormInitMode] = useState<InstanceInitMode>("copy");
   const [formLaunchMode, setFormLaunchMode] =
     useState<InstanceLaunchMode>("app");
-  const [formAppSpeed, setFormAppSpeed] =
-    useState<CodexAppSpeed>("standard");
+  const [formAppSpeed, setFormAppSpeed] = useState<CodexAppSpeed>("standard");
   const [formBindAccountId, setFormBindAccountId] = useState<string>("");
   const [formCodexQuickConfig, setFormCodexQuickConfig] =
     useState<CodexQuickConfig | null>(null);
   const [formCodexQuickConfigPresetId, setFormCodexQuickConfigPresetId] =
     useState<CodexQuickConfigPresetId>("default");
-  const [formCodexQuickContextWindowInput, setFormCodexQuickContextWindowInput] =
-    useState(String(CONTEXT_WINDOW_1M));
+  const [
+    formCodexQuickContextWindowInput,
+    setFormCodexQuickContextWindowInput,
+  ] = useState(String(CONTEXT_WINDOW_1M));
   const [formCodexQuickCompactLimitInput, setFormCodexQuickCompactLimitInput] =
     useState(String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT));
   const [formCodexQuickConfigLoading, setFormCodexQuickConfigLoading] =
     useState(false);
-  const [formCodexQuickConfigError, setFormCodexQuickConfigError] =
-    useState<string | null>(null);
+  const [formCodexQuickConfigError, setFormCodexQuickConfigError] = useState<
+    string | null
+  >(null);
   const [formCodexOpenConfigLoading, setFormCodexOpenConfigLoading] =
     useState(false);
   const [formCopySourceInstanceId, setFormCopySourceInstanceId] = useState("");
@@ -409,14 +748,16 @@ export function InstancesManager<TAccount extends AccountLike>({
     () => new Set(stoppingInstanceIds),
     [stoppingInstanceIds],
   );
-  const isGeminiApp = appType === "gemini";
+  const isGrokApp = appType === "grok";
+  const supportsInstanceInitialization = !isGrokApp;
+  const isCliOnlyApp = isGrokApp;
   const isCodexApp = appType === "codex";
   const isClaudeApp = appType === "claude";
   const supportsLaunchModeSelect = isCodexApp || isClaudeApp;
   const resolveInstanceLaunchMode = (
     instance?: InstanceProfile | null,
   ): InstanceLaunchMode => {
-    if (isGeminiApp) {
+    if (isCliOnlyApp) {
       return "cli";
     }
     if (isCodexApp || isClaudeApp) {
@@ -425,13 +766,15 @@ export function InstancesManager<TAccount extends AccountLike>({
     return "app";
   };
   const usesTerminalLaunch = (instance: InstanceProfile) =>
-    isGeminiApp ||
-    ((isCodexApp || isClaudeApp) && resolveInstanceLaunchMode(instance) === "cli");
-  const supportsStopControl =
-    !isGeminiApp && instances.some((item) => !usesTerminalLaunch(item));
-  const hidePathFieldInEditModal = isGeminiApp && Boolean(editing?.isDefault);
+    isCliOnlyApp ||
+    ((isCodexApp || isClaudeApp) &&
+      resolveInstanceLaunchMode(instance) === "cli");
+  const supportsStopControl = instances.some(
+    (item) => !usesTerminalLaunch(item),
+  );
+  const hidePathFieldInEditModal = isCliOnlyApp && Boolean(editing?.isDefault);
   const showWorkingDirField =
-    isGeminiApp || (supportsLaunchModeSelect && formLaunchMode === "cli");
+    isCliOnlyApp || (supportsLaunchModeSelect && formLaunchMode === "cli");
   const floatingCardPlatformId = useMemo(
     () => resolveFloatingCardPlatformId(appType),
     [appType],
@@ -450,7 +793,9 @@ export function InstancesManager<TAccount extends AccountLike>({
       if (!isCodexApp) return null;
       const trimmed = value?.trim() || "";
       if (!trimmed.startsWith(CODEX_PROVIDER_GATEWAY_BIND_PREFIX)) return null;
-      const accountId = trimmed.slice(CODEX_PROVIDER_GATEWAY_BIND_PREFIX.length).trim();
+      const accountId = trimmed
+        .slice(CODEX_PROVIDER_GATEWAY_BIND_PREFIX.length)
+        .trim();
       return accountId || null;
     },
     [isCodexApp],
@@ -500,7 +845,8 @@ export function InstancesManager<TAccount extends AccountLike>({
           isProviderGateway: false,
         };
       }
-      const providerGatewayAccountId = parseProviderGatewayBindAccountId(bindAccountId);
+      const providerGatewayAccountId =
+        parseProviderGatewayBindAccountId(bindAccountId);
       const targetAccountId = providerGatewayAccountId || bindAccountId;
       const account =
         accounts.find((item) => item.id === targetAccountId) || null;
@@ -616,7 +962,7 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   useEffect(() => {
     if (!formError || !showModal) return;
-    formErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    scrollElementIntoView(formErrorRef.current, { block: "end" });
   }, [formError, formErrorTick, showModal]);
 
   useEffect(() => {
@@ -703,14 +1049,16 @@ export function InstancesManager<TAccount extends AccountLike>({
     setFormPath(showRoot && defaultRoot ? defaultRoot : "");
     setFormWorkingDir("");
     setFormExtraArgs("");
-    setFormInitMode("copy");
-    setFormLaunchMode(isGeminiApp ? "cli" : "app");
+    setFormInitMode(isGrokApp ? "empty" : "copy");
+    setFormLaunchMode(isCliOnlyApp ? "cli" : "app");
     setFormAppSpeed("standard");
     setFormBindAccountId("");
     setFormCodexQuickConfig(null);
     setFormCodexQuickConfigPresetId("default");
     setFormCodexQuickContextWindowInput(String(CONTEXT_WINDOW_1M));
-    setFormCodexQuickCompactLimitInput(String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT));
+    setFormCodexQuickCompactLimitInput(
+      String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT),
+    );
     setFormCodexQuickConfigLoading(false);
     setFormCodexQuickConfigError(null);
     setFormCodexOpenConfigLoading(false);
@@ -775,7 +1123,9 @@ export function InstancesManager<TAccount extends AccountLike>({
     setFormCodexQuickConfig(null);
     setFormCodexQuickConfigPresetId("default");
     setFormCodexQuickContextWindowInput(String(CONTEXT_WINDOW_1M));
-    setFormCodexQuickCompactLimitInput(String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT));
+    setFormCodexQuickCompactLimitInput(
+      String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT),
+    );
     setFormCodexQuickConfigLoading(isCodexApp);
     setFormCodexQuickConfigError(null);
     setFormCodexOpenConfigLoading(false);
@@ -791,9 +1141,21 @@ export function InstancesManager<TAccount extends AccountLike>({
     setEditing(null);
   };
 
+  const clearDeleteConfirm = useCallback(() => {
+    setDeleteConfirmInstance(null);
+    clearDeleteInstanceError();
+  }, [clearDeleteInstanceError]);
+
+  const dismissDeleteConfirm = useCallback(() => {
+    if (deleteConfirmInstance && actionLoading === deleteConfirmInstance.id) {
+      return;
+    }
+    clearDeleteConfirm();
+  }, [actionLoading, clearDeleteConfirm, deleteConfirmInstance]);
+
   useEscClose(showModal, closeModal);
   useEscClose(!!initGuideInstance, () => setInitGuideInstance(null));
-  useEscClose(!!deleteConfirmInstance, () => setDeleteConfirmInstance(null));
+  useEscClose(!!deleteConfirmInstance, dismissDeleteConfirm);
   useEscClose(!!runningNoticeInstance, () => setRunningNoticeInstance(null));
 
   const handleNameChange = (value: string) => {
@@ -841,7 +1203,8 @@ export function InstancesManager<TAccount extends AccountLike>({
     setFormError(null);
     setMessage(null);
     const isEditingDefault = Boolean(editing?.isDefault);
-    const isCreateEmpty = !editing && formInitMode === "empty";
+    const isCreateEmpty =
+      !editing && supportsInstanceInitialization && formInitMode === "empty";
 
     if (!isEditingDefault) {
       if (!formName.trim()) {
@@ -856,10 +1219,14 @@ export function InstancesManager<TAccount extends AccountLike>({
       }
     }
 
-    const isExistingDir = !editing && formInitMode === "existingDir";
+    const isExistingDir =
+      !editing &&
+      supportsInstanceInitialization &&
+      formInitMode === "existingDir";
 
     if (
       !editing &&
+      supportsInstanceInitialization &&
       !isCreateEmpty &&
       !isExistingDir &&
       !formCopySourceInstanceId
@@ -871,7 +1238,13 @@ export function InstancesManager<TAccount extends AccountLike>({
       return;
     }
 
-    if (!editing && !isCreateEmpty && !isExistingDir && !formBindAccountId) {
+    if (
+      !editing &&
+      supportsInstanceInitialization &&
+      !isCreateEmpty &&
+      !isExistingDir &&
+      !formBindAccountId
+    ) {
       setFormError(t("instances.form.bindRequired", "请选择要绑定的账号"));
       setFormErrorTick((prev) => prev + 1);
       return;
@@ -914,9 +1287,8 @@ export function InstancesManager<TAccount extends AccountLike>({
         if (!isEditingDefault) {
           updatePayload.name = formName.trim();
         }
-        const canEditBind = !(
-          editing.initialized === false && !isEditingDefault
-        );
+        const canEditBind =
+          isGrokApp || !(editing.initialized === false && !isEditingDefault);
         if (canEditBind) {
           const nextBindId = resolveBindAccountValue(formBindAccountId);
           updatePayload.bindAccountId = nextBindId;
@@ -941,7 +1313,7 @@ export function InstancesManager<TAccount extends AccountLike>({
           userDataDir: formPath.trim(),
           workingDir: nextWorkingDir,
           extraArgs: formExtraArgs,
-          initMode: formInitMode,
+          initMode: isGrokApp ? "empty" : formInitMode,
           launchMode: nextLaunchMode,
           appSpeed: isCodexApp ? formAppSpeed : undefined,
           bindAccountId: isCreateEmpty
@@ -967,19 +1339,24 @@ export function InstancesManager<TAccount extends AccountLike>({
   };
 
   const handleDelete = (instance: InstanceProfile) => {
+    clearDeleteInstanceError();
     setDeleteConfirmInstance(instance);
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirmInstance) return;
     const target = deleteConfirmInstance;
+    clearDeleteInstanceError();
     setActionLoading(target.id);
     try {
       await deleteInstance(target.id);
       setMessage({ text: t("instances.messages.deleted", "实例已删除") });
-      setDeleteConfirmInstance(null);
+      clearDeleteConfirm();
     } catch (e) {
-      setMessage({ text: String(e), tone: "error" });
+      const errorMessage = String(e)
+        .replace(/^Error:\s*/, "")
+        .trim();
+      reportDeleteInstanceError(errorMessage || t("common.failed", "失败"));
     } finally {
       setActionLoading(null);
     }
@@ -990,7 +1367,9 @@ export function InstancesManager<TAccount extends AccountLike>({
     const missingPathPrefix = "APP_PATH_NOT_FOUND:";
     const multiInstanceExePrefix = "CLAUDE_MULTI_INSTANCE_REQUIRES_EXE:";
     const isMissingPath = message.startsWith(missingPathPrefix);
-    const isMultiInstanceExeRequired = message.startsWith(multiInstanceExePrefix);
+    const isMultiInstanceExeRequired = message.startsWith(
+      multiInstanceExePrefix,
+    );
     if (!isMissingPath && !isMultiInstanceExeRequired) {
       return false;
     }
@@ -1005,10 +1384,11 @@ export function InstancesManager<TAccount extends AccountLike>({
       rawApp === "windsurf" ||
       rawApp === "kiro" ||
       rawApp === "cursor" ||
-      rawApp === "gemini" ||
+      rawApp === "grok" ||
       rawApp === "codebuddy" ||
       rawApp === "codebuddy_cn" ||
-      rawApp === "qoder"
+      rawApp === "qoder" ||
+      rawApp === "zcode"
         ? rawApp
         : appType;
     const runtimeTarget =
@@ -1021,6 +1401,25 @@ export function InstancesManager<TAccount extends AccountLike>({
     window.dispatchEvent(
       new CustomEvent("app-path-missing", { detail: { app, retry } }),
     );
+    return true;
+  };
+
+  const handleCodexManagedStoreLaunchError = (error: unknown) => {
+    const message = String(error ?? "").replace(/^Error:\s*/, "");
+    const prefix = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
+    if (appType !== "codex" || !message.startsWith(prefix)) {
+      return false;
+    }
+
+    const detail = message.slice(prefix.length).trim();
+    setMessage({
+      text: t(
+        "instances.messages.codexManagedStoreLaunchUnsafe",
+        "Windows Store 无法可靠传递实例目录，已阻止打开默认账号。请将该实例的启动方式切换为 CLI 后重试。详情：{{detail}}",
+        { detail },
+      ),
+      tone: "error",
+    });
     return true;
   };
 
@@ -1081,8 +1480,21 @@ export function InstancesManager<TAccount extends AccountLike>({
         }
         return "started";
       } catch (e) {
+        if (onInstanceStartError) {
+          try {
+            if (await onInstanceStartError(e, instance)) {
+              return "failed";
+            }
+          } catch (callbackError) {
+            setMessage({ text: String(callbackError), tone: "error" });
+            return "failed";
+          }
+        }
         if (handleMissingPathError(e, instance.id)) {
           return "missing-path";
+        }
+        if (handleCodexManagedStoreLaunchError(e)) {
+          return "failed";
         }
         setMessage({ text: String(e), tone: "error" });
         return "failed";
@@ -1099,7 +1511,9 @@ export function InstancesManager<TAccount extends AccountLike>({
     },
     [
       handleMissingPathError,
+      handleCodexManagedStoreLaunchError,
       markInstanceStarting,
+      onInstanceStartError,
       onInstanceStarted,
       resolveStartSuccessMessage,
       startInstance,
@@ -1111,7 +1525,8 @@ export function InstancesManager<TAccount extends AccountLike>({
 
   const handleStart = async (instance: InstanceProfile) => {
     await startStoppedInstance(instance, {
-      showRunningNotice: supportsStopControl && !usesTerminalLaunch(instance),
+      showRunningNotice:
+        supportsStopControl && !usesTerminalLaunch(instance),
       showSuccessMessage: true,
     });
   };
@@ -1390,26 +1805,32 @@ export function InstancesManager<TAccount extends AccountLike>({
     [t],
   );
 
-  const applyFormCodexQuickConfig = useCallback((nextConfig: CodexQuickConfig) => {
-    const detectedModelContextWindow =
-      nextConfig.detected_model_context_window ?? null;
-    const detectedAutoCompactTokenLimit =
-      nextConfig.detected_auto_compact_token_limit ?? null;
-    const presetId = resolveCodexQuickConfigPresetId(
-      detectedModelContextWindow,
-      detectedAutoCompactTokenLimit,
-    );
-    setFormCodexQuickConfig(nextConfig);
-    setFormCodexQuickConfigPresetId(presetId);
-    setFormCodexQuickContextWindowInput(
-      String(detectedModelContextWindow ?? CONTEXT_WINDOW_1M),
-    );
-    setFormCodexQuickCompactLimitInput(
-      String(detectedAutoCompactTokenLimit ?? DEFAULT_AUTO_COMPACT_TOKEN_LIMIT),
-    );
-  }, []);
+  const applyFormCodexQuickConfig = useCallback(
+    (nextConfig: CodexQuickConfig) => {
+      const detectedModelContextWindow =
+        nextConfig.detected_model_context_window ?? null;
+      const detectedAutoCompactTokenLimit =
+        nextConfig.detected_auto_compact_token_limit ?? null;
+      const presetId = resolveCodexQuickConfigPresetId(
+        detectedModelContextWindow,
+        detectedAutoCompactTokenLimit,
+      );
+      setFormCodexQuickConfig(nextConfig);
+      setFormCodexQuickConfigPresetId(presetId);
+      setFormCodexQuickContextWindowInput(
+        String(detectedModelContextWindow ?? CONTEXT_WINDOW_1M),
+      );
+      setFormCodexQuickCompactLimitInput(
+        String(
+          detectedAutoCompactTokenLimit ?? DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
+        ),
+      );
+    },
+    [],
+  );
 
-  const formCodexQuickIsCustomPreset = formCodexQuickConfigPresetId === "custom";
+  const formCodexQuickIsCustomPreset =
+    formCodexQuickConfigPresetId === "custom";
   const formCodexQuickDetectedModelContextWindow =
     formCodexQuickConfig?.detected_model_context_window ?? null;
   const formCodexQuickDetectedAutoCompactTokenLimit =
@@ -1584,25 +2005,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     return () => {
       active = false;
     };
-  }, [
-    applyFormCodexQuickConfig,
-    editing,
-    isCodexApp,
-    showModal,
-    t,
-  ]);
-
-  type BaseAccountSelectProps = {
-    value: string | null;
-    onChange: (nextId: string | null) => void;
-    allowUnbound?: boolean;
-    allowFollowCurrent?: boolean;
-    isFollowingCurrent?: boolean;
-    onFollowCurrent?: () => void;
-    disabled?: boolean;
-    missing?: boolean;
-    placeholder?: string;
-  };
+  }, [applyFormCodexQuickConfig, editing, isCodexApp, showModal, t]);
 
   const renderAccountMenuItems = ({
     visibleAccounts,
@@ -1620,23 +2023,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     onChange,
     onClose,
     selectedAccount,
-  }: {
-    visibleAccounts: TAccount[];
-    availableTags: string[];
-    searchValue: string;
-    onSearchChange: (value: string) => void;
-    tagFilter: string[];
-    onToggleTagFilter: (tag: string) => void;
-    onClearTagFilter: () => void;
-    value: string | null;
-    isFollowingCurrent?: boolean;
-    allowFollowCurrent?: boolean;
-    allowUnbound?: boolean;
-    onFollowCurrent?: () => void;
-    onChange: (nextId: string | null) => void;
-    onClose: () => void;
-    selectedAccount: TAccount | null;
-  }) => (
+  }: AccountMenuItemsRenderArgs<TAccount>) => (
     <>
       <div className="account-select-menu-toolbar">
         <label className="account-select-search-box">
@@ -1777,601 +2164,40 @@ export function InstancesManager<TAccount extends AccountLike>({
     </>
   );
 
-  type InlineAccountSelectProps = BaseAccountSelectProps & {
-    onOpenChange?: (open: boolean) => void;
-    instanceId?: string;
-    currentOpenId?: string | null;
-  };
+  const renderFormAccountSelect = (props: BaseAccountSelectProps) => (
+    <InlineAccountSelect
+      {...props}
+      accounts={accounts}
+      launchMode={formLaunchMode}
+      filterAccountsForLaunchMode={filterAccountsForLaunchMode}
+      getAccountSearchText={getAccountSearchText}
+      resolveAccountDisplayText={resolveAccountDisplayText}
+      isApiServiceBindId={isApiServiceBindId}
+      resolveBoundAccount={resolveBoundAccount}
+      renderAccountQuotaPreview={renderAccountQuotaPreview}
+      renderAccountBadge={renderAccountBadge}
+      maskAccountText={maskAccountText}
+      resolveApiServiceLabel={resolveApiServiceLabel}
+      renderAccountMenuItems={renderAccountMenuItems}
+      unboundLabel={t("instances.form.unbound", "不绑定")}
+      selectAccountLabel={t("instances.form.selectAccount", "选择账号")}
+      missingAccountLabel={t("instances.quota.accountMissing", "账号不存在")}
+      followCurrentLabel={t("instances.form.followCurrent", "跟随当前账号")}
+    />
+  );
 
-  const InlineAccountSelect = ({
-    value,
-    onChange,
-    allowUnbound = false,
-    allowFollowCurrent = false,
-    isFollowingCurrent = false,
-    onFollowCurrent,
-    onOpenChange,
-    disabled = false,
-    missing = false,
-    placeholder,
-    instanceId,
-    currentOpenId,
-  }: InlineAccountSelectProps) => {
-    const menuRef = useRef<HTMLDivElement | null>(null);
-    const triggerRef = useRef<HTMLButtonElement | null>(null);
-    const portalMenuRef = useRef<HTMLDivElement | null>(null);
-    const activeItemScrolledRef = useRef(false);
-    const isOpen = instanceId ? currentOpenId === instanceId : false;
-    const [portalPos, setPortalPos] =
-      useState<AccountSelectPortalPosition | null>(null);
-    const [searchValue, setSearchValue] = useState("");
-    const [tagFilter, setTagFilter] = useState<string[]>([]);
-    const targetLaunchMode = useMemo(() => {
-      const instance = instanceId
-        ? instances.find((item) => item.id === instanceId)
-        : null;
-      return resolveInstanceLaunchMode(instance);
-    }, [instanceId, instances]);
-    const selectableAccounts = useMemo(
-      () => filterAccountsForLaunchMode(accounts, targetLaunchMode),
-      [accounts, filterAccountsForLaunchMode, targetLaunchMode],
-    );
-
-    const availableTags = useMemo(
-      () => collectInstanceAccountTags(selectableAccounts),
-      [selectableAccounts],
-    );
-    const visibleAccounts = useMemo(() => {
-      const normalizedQuery = searchValue.trim().toLowerCase();
-      const selectedTags = new Set(tagFilter.map(normalizeInstanceAccountTag));
-      return selectableAccounts.filter((account) => {
-        if (selectedTags.size > 0) {
-          const accountTags = (account.tags || [])
-            .map(normalizeInstanceAccountTag)
-            .filter(Boolean);
-          if (!accountTags.some((tag) => selectedTags.has(tag))) {
-            return false;
-          }
-        }
-        if (!normalizedQuery) return true;
-        const haystack = [
-          resolveAccountDisplayText(account),
-          account.email,
-          getAccountSearchText ? getAccountSearchText(account) : "",
-          ...(account.tags || []),
-        ]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(normalizedQuery);
-      });
-    }, [
-      getAccountSearchText,
-      resolveAccountDisplayText,
-      searchValue,
-      selectableAccounts,
-      tagFilter,
-    ]);
-
-    const toggleTagFilter = useCallback((tag: string) => {
-      setTagFilter((prev) =>
-        prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag],
-      );
-    }, []);
-
-    const updatePortalPos = useCallback((event?: Event) => {
-      const eventTarget = event?.target;
-      if (
-        event?.type === "scroll" &&
-        eventTarget instanceof Node &&
-        portalMenuRef.current?.contains(eventTarget)
-      ) {
-        return;
-      }
-      setPortalPos((prev) => {
-        const next = resolveAccountSelectPortalPosition(triggerRef.current);
-        return isSameAccountSelectPortalPosition(prev, next) ? prev : next;
-      });
-    }, []);
-
-    useEffect(() => {
-      if (isOpen) return;
-      activeItemScrolledRef.current = false;
-      setSearchValue("");
-      setTagFilter([]);
-    }, [isOpen]);
-
-    useEffect(() => {
-      if (!isOpen) return;
-      updatePortalPos();
-
-      const handleClick = (event: MouseEvent) => {
-        const target = event.target as Node;
-        const inTrigger = Boolean(
-          menuRef.current && menuRef.current.contains(target),
-        );
-        const inPortalMenu = Boolean(
-          portalMenuRef.current && portalMenuRef.current.contains(target),
-        );
-        if (!inTrigger && !inPortalMenu) {
-          onOpenChange?.(false);
-        }
-      };
-      // 使用 setTimeout 延迟添加监听器，避免与打开菜单的点击事件冲突
-      const timer = setTimeout(() => {
-        document.addEventListener("click", handleClick);
-      }, 0);
-      window.addEventListener("resize", updatePortalPos);
-      window.addEventListener("scroll", updatePortalPos, true);
-      return () => {
-        clearTimeout(timer);
-        document.removeEventListener("click", handleClick);
-        window.removeEventListener("resize", updatePortalPos);
-        window.removeEventListener("scroll", updatePortalPos, true);
-      };
-    }, [isOpen, onOpenChange, updatePortalPos]);
-
-    useEffect(() => {
-      if (!isOpen || !portalPos || !portalMenuRef.current) return;
-      if (activeItemScrolledRef.current) return;
-      activeItemScrolledRef.current = true;
-
-      const frameId = window.requestAnimationFrame(() => {
-        const activeItem = portalMenuRef.current?.querySelector<HTMLElement>(
-          '[data-account-select-active="true"]',
-        );
-        activeItem?.scrollIntoView({
-          block: "nearest",
-          behavior: "auto",
-        });
-      });
-
-      return () => {
-        window.cancelAnimationFrame(frameId);
-      };
-    }, [
-      isOpen,
-      portalPos?.placement,
-    ]);
-
-    useEffect(() => {
-      if (disabled && isOpen) {
-        onOpenChange?.(false);
-      }
-    }, [disabled, isOpen, onOpenChange]);
-
-    const isApiServiceSelected = isApiServiceBindId(value);
-    const selectedAccount = resolveBoundAccount(value).account;
-    const basePlaceholder =
-      placeholder ||
-      (allowUnbound
-        ? t("instances.form.unbound", "不绑定")
-        : t("instances.form.selectAccount", "选择账号"));
-    const selectedLabel = missing
-      ? t("instances.quota.accountMissing", "账号不存在")
-      : isFollowingCurrent
-        ? maskAccountText(resolveAccountDisplayText(selectedAccount)) ||
-          t("instances.form.followCurrent", "跟随当前账号")
-        : isApiServiceSelected
-          ? resolveApiServiceLabel()
-          : maskAccountText(resolveAccountDisplayText(selectedAccount)) || basePlaceholder;
-    const selectedBadge =
-      !missing && selectedAccount
-        ? renderAccountBadge?.(selectedAccount)
-        : null;
-    const selectedQuota = selectedAccount
-      ? renderAccountQuotaPreview(selectedAccount)
-      : null;
-
-    return (
-      <div
-        className={`account-select ${disabled ? "disabled" : ""}`}
-        ref={menuRef}
-      >
-        <button
-          ref={triggerRef}
-          type="button"
-          className={`account-select-trigger ${isOpen ? "open" : ""}`}
-          onClick={() => {
-            if (disabled) return;
-            onOpenChange?.(!isOpen);
-          }}
-          disabled={disabled}
-        >
-          <span className="account-select-content">
-            <span className="account-select-label-row">
-              <span className="account-select-label" title={selectedLabel}>
-                {selectedLabel}
-              </span>
-              {selectedBadge}
-            </span>
-            {selectedQuota && (
-              <span className="account-select-meta">{selectedQuota}</span>
-            )}
-          </span>
-          <span className="account-select-arrow">
-            <ChevronDown size={14} />
-          </span>
-        </button>
-        {isOpen && !disabled && portalPos
-            ? createPortal(
-              <div
-                className={`instances-page account-select-portal-root ${portalPos.placement === "top" ? "placement-top" : "placement-bottom"}`}
-                style={{
-                  position: "fixed",
-                  top: `${portalPos.top}px`,
-                  left: `${portalPos.left}px`,
-                  width: `${portalPos.width}px`,
-                  ["--account-select-max-height" as string]: `${portalPos.maxHeight}px`,
-                  zIndex: ACCOUNT_SELECT_PORTAL_Z_INDEX,
-                }}
-              >
-                <div ref={portalMenuRef} className="account-select-menu">
-                  {renderAccountMenuItems({
-                    visibleAccounts,
-                    availableTags,
-                    searchValue,
-                    onSearchChange: setSearchValue,
-                    tagFilter,
-                    onToggleTagFilter: toggleTagFilter,
-                    onClearTagFilter: () => setTagFilter([]),
-                    value,
-                    isFollowingCurrent,
-                    allowFollowCurrent,
-                    allowUnbound,
-                    onFollowCurrent,
-                    onChange,
-                    onClose: () => onOpenChange?.(false),
-                    selectedAccount,
-                  })}
-                </div>
-              </div>,
-              document.body,
-            )
-          : null}
-      </div>
-    );
-  };
-
-  type FormAccountSelectProps = BaseAccountSelectProps;
-
-  const FormAccountSelect = ({
-    value,
-    onChange,
-    allowUnbound = false,
-    allowFollowCurrent = false,
-    isFollowingCurrent = false,
-    onFollowCurrent,
-    disabled = false,
-    missing = false,
-    placeholder,
-  }: FormAccountSelectProps) => {
-    const menuRef = useRef<HTMLDivElement | null>(null);
-    const triggerRef = useRef<HTMLButtonElement | null>(null);
-    const portalMenuRef = useRef<HTMLDivElement | null>(null);
-    const activeItemScrolledRef = useRef(false);
-    const [open, setOpen] = useState(false);
-    const [portalPos, setPortalPos] =
-      useState<AccountSelectPortalPosition | null>(null);
-    const [searchValue, setSearchValue] = useState("");
-    const [tagFilter, setTagFilter] = useState<string[]>([]);
-    const selectableAccounts = useMemo(
-      () => filterAccountsForLaunchMode(accounts, formLaunchMode),
-      [accounts, filterAccountsForLaunchMode, formLaunchMode],
-    );
-
-    const availableTags = useMemo(
-      () => collectInstanceAccountTags(selectableAccounts),
-      [selectableAccounts],
-    );
-    const visibleAccounts = useMemo(() => {
-      const normalizedQuery = searchValue.trim().toLowerCase();
-      const selectedTags = new Set(tagFilter.map(normalizeInstanceAccountTag));
-      return selectableAccounts.filter((account) => {
-        if (selectedTags.size > 0) {
-          const accountTags = (account.tags || [])
-            .map(normalizeInstanceAccountTag)
-            .filter(Boolean);
-          if (!accountTags.some((tag) => selectedTags.has(tag))) {
-            return false;
-          }
-        }
-        if (!normalizedQuery) return true;
-        const haystack = [
-          resolveAccountDisplayText(account),
-          account.email,
-          getAccountSearchText ? getAccountSearchText(account) : "",
-          ...(account.tags || []),
-        ]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(normalizedQuery);
-      });
-    }, [
-      getAccountSearchText,
-      resolveAccountDisplayText,
-      searchValue,
-      selectableAccounts,
-      tagFilter,
-    ]);
-
-    const toggleTagFilter = useCallback((tag: string) => {
-      setTagFilter((prev) =>
-        prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag],
-      );
-    }, []);
-
-    const updatePortalPos = useCallback((event?: Event) => {
-      const eventTarget = event?.target;
-      if (
-        event?.type === "scroll" &&
-        eventTarget instanceof Node &&
-        portalMenuRef.current?.contains(eventTarget)
-      ) {
-        return;
-      }
-      setPortalPos((prev) => {
-        const next = resolveAccountSelectPortalPosition(triggerRef.current);
-        return isSameAccountSelectPortalPosition(prev, next) ? prev : next;
-      });
-    }, []);
-
-    useEffect(() => {
-      if (!open) return;
-      const handleClick = (event: MouseEvent) => {
-        const target = event.target as Node;
-        const inTrigger = Boolean(
-          menuRef.current && menuRef.current.contains(target),
-        );
-        const inPortalMenu = Boolean(
-          portalMenuRef.current && portalMenuRef.current.contains(target),
-        );
-        if (!inTrigger && !inPortalMenu) {
-          setOpen(false);
-        }
-      };
-      updatePortalPos();
-      const timer = setTimeout(() => {
-        document.addEventListener("click", handleClick);
-      }, 0);
-      window.addEventListener("resize", updatePortalPos);
-      window.addEventListener("scroll", updatePortalPos, true);
-      return () => {
-        clearTimeout(timer);
-        document.removeEventListener("click", handleClick);
-        window.removeEventListener("resize", updatePortalPos);
-        window.removeEventListener("scroll", updatePortalPos, true);
-      };
-    }, [open, updatePortalPos]);
-
-    useEffect(() => {
-      if (!open || !portalPos || !portalMenuRef.current) return;
-      if (activeItemScrolledRef.current) return;
-      activeItemScrolledRef.current = true;
-
-      const frameId = window.requestAnimationFrame(() => {
-        const activeItem = portalMenuRef.current?.querySelector<HTMLElement>(
-          '[data-account-select-active="true"]',
-        );
-        activeItem?.scrollIntoView({
-          block: "nearest",
-          behavior: "auto",
-        });
-      });
-
-      return () => {
-        window.cancelAnimationFrame(frameId);
-      };
-    }, [open, portalPos?.placement]);
-
-    useEffect(() => {
-      if (disabled && open) {
-        setOpen(false);
-      }
-    }, [disabled, open]);
-
-    useEffect(() => {
-      if (open) return;
-      activeItemScrolledRef.current = false;
-      setSearchValue("");
-      setTagFilter([]);
-    }, [open]);
-
-    const isApiServiceSelected = isApiServiceBindId(value);
-    const selectedAccount = resolveBoundAccount(value).account;
-    const basePlaceholder =
-      placeholder ||
-      (allowUnbound
-        ? t("instances.form.unbound", "不绑定")
-        : t("instances.form.selectAccount", "选择账号"));
-    const selectedLabel = missing
-      ? t("instances.quota.accountMissing", "账号不存在")
-      : isFollowingCurrent
-        ? maskAccountText(resolveAccountDisplayText(selectedAccount)) ||
-          t("instances.form.followCurrent", "跟随当前账号")
-        : isApiServiceSelected
-          ? resolveApiServiceLabel()
-          : maskAccountText(resolveAccountDisplayText(selectedAccount)) || basePlaceholder;
-    const selectedBadge =
-      !missing && selectedAccount
-        ? renderAccountBadge?.(selectedAccount)
-        : null;
-    const selectedQuota = selectedAccount
-      ? renderAccountQuotaPreview(selectedAccount)
-      : null;
-
-    return (
-      <div
-        className={`account-select ${disabled ? "disabled" : ""}`}
-        ref={menuRef}
-      >
-        <button
-          ref={triggerRef}
-          type="button"
-          className={`account-select-trigger ${open ? "open" : ""}`}
-          onClick={() => {
-            if (disabled) return;
-            setOpen((prev) => !prev);
-          }}
-          disabled={disabled}
-        >
-          <span className="account-select-content">
-            <span className="account-select-label-row">
-              <span className="account-select-label" title={selectedLabel}>
-                {selectedLabel}
-              </span>
-              {selectedBadge}
-            </span>
-            {selectedQuota && (
-              <span className="account-select-meta">{selectedQuota}</span>
-            )}
-          </span>
-          <span className="account-select-arrow">
-            <ChevronDown size={14} />
-          </span>
-        </button>
-        {open && !disabled && portalPos
-          ? createPortal(
-              <div
-                className={`instances-page account-select-portal-root ${portalPos.placement === "top" ? "placement-top" : "placement-bottom"}`}
-                style={{
-                  position: "fixed",
-                  top: `${portalPos.top}px`,
-                  left: `${portalPos.left}px`,
-                  width: `${portalPos.width}px`,
-                  ["--account-select-max-height" as string]: `${portalPos.maxHeight}px`,
-                  zIndex: ACCOUNT_SELECT_PORTAL_Z_INDEX,
-                }}
-              >
-                <div ref={portalMenuRef} className="account-select-menu">
-                  {renderAccountMenuItems({
-                    visibleAccounts,
-                    availableTags,
-                    searchValue,
-                    onSearchChange: setSearchValue,
-                    tagFilter,
-                    onToggleTagFilter: toggleTagFilter,
-                    onClearTagFilter: () => setTagFilter([]),
-                    value,
-                    isFollowingCurrent,
-                    allowFollowCurrent,
-                    allowUnbound,
-                    onFollowCurrent,
-                    onChange,
-                    onClose: () => setOpen(false),
-                    selectedAccount,
-                  })}
-                </div>
-              </div>,
-              document.body,
-            )
-          : null}
-      </div>
-    );
-  };
-
-  type InstanceSelectProps = {
-    value: string;
-    onChange: (nextId: string) => void;
-    disabled?: boolean;
-  };
-
-  const InstanceSelect = ({
-    value,
-    onChange,
-    disabled = false,
-  }: InstanceSelectProps) => {
-    const [open, setOpen] = useState(false);
-    const menuRef = useRef<HTMLDivElement | null>(null);
-
-    useEffect(() => {
-      if (!open) return;
-      const handleClick = (event: MouseEvent) => {
-        if (
-          menuRef.current &&
-          !menuRef.current.contains(event.target as Node)
-        ) {
-          setOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", handleClick);
-      return () => {
-        document.removeEventListener("mousedown", handleClick);
-      };
-    }, [open]);
-
-    useEffect(() => {
-      if (disabled && open) {
-        setOpen(false);
-      }
-    }, [disabled, open]);
-
-    const selected =
-      availableCopySourceInstances.find((item) => item.id === value) ||
-      availableCopySourceInstances.find((item) => item.isDefault) ||
-      null;
-    const selectedLabel = selected
-      ? selected.isDefault
-        ? t("instances.defaultName", "默认实例")
-        : selected.name || ""
-      : value === "__default__"
-        ? t("instances.defaultName", "默认实例")
-        : t("instances.form.copySourcePlaceholder", "选择来源实例");
-
-    return (
-      <div
-        className={`account-select ${disabled ? "disabled" : ""}`}
-        ref={menuRef}
-      >
-        <button
-          type="button"
-          className={`account-select-trigger ${open ? "open" : ""}`}
-          onClick={() => {
-            if (disabled) return;
-            setOpen((prev) => !prev);
-          }}
-          disabled={disabled}
-        >
-          <span className="account-select-label" title={selectedLabel}>
-            {selectedLabel}
-          </span>
-          <span className="account-select-meta">
-            <ChevronDown size={14} />
-          </span>
-        </button>
-        {open && !disabled && (
-          <div className="account-select-menu">
-            {availableCopySourceInstances.length === 0 ? (
-              <div className="account-select-item active">
-                <span className="account-select-email muted">
-                  {t("instances.defaultName", "默认实例")}
-                </span>
-              </div>
-            ) : (
-              availableCopySourceInstances.map((instance) => {
-                const label = instance.isDefault
-                  ? t("instances.defaultName", "默认实例")
-                  : instance.name || "";
-                return (
-                  <button
-                    type="button"
-                    key={instance.id}
-                    className={`account-select-item ${value === instance.id ? "active" : ""}`}
-                    onClick={() => {
-                      onChange(instance.id);
-                      setOpen(false);
-                    }}
-                    title={instance.userDataDir}
-                  >
-                    <span className="account-select-email">{label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // 注意：不要把带 useState 的下拉组件定义在 render 内部（否则父级重渲染会重置 open）。
+  // 复制来源实例使用模块级 SingleSelectDropdown（portal + 稳定类型）。
+  const copySourceOptions = useMemo(
+    () =>
+      availableCopySourceInstances.map((instance) => ({
+        value: instance.id,
+        label: instance.isDefault
+          ? t("instances.defaultName", "默认实例")
+          : instance.name || instance.id,
+      })),
+    [availableCopySourceInstances, t],
+  );
 
   const handleFormAccountChange = (nextId: string | null) => {
     setFormBindAccountId(resolveBindAccountValue(nextId) ?? "");
@@ -2399,7 +2225,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     instance: InstanceProfile,
     nextId: string | null,
   ) => {
-    if (instance.initialized === false) {
+    if (!isGrokApp && instance.initialized === false) {
       setInitGuideInstance(instance);
       return;
     }
@@ -2517,15 +2343,17 @@ export function InstancesManager<TAccount extends AccountLike>({
           >
             <Plus size={16} />
           </button>
-          <button
-            className="btn btn-secondary icon-only"
-            onClick={handleStartAll}
-            disabled={bulkActionLoading || restartingAll}
-            title={t("instances.actions.startAll", "全部启动")}
-            aria-label={t("instances.actions.startAll", "全部启动")}
-          >
-            <Play size={16} />
-          </button>
+          {!isGrokApp && (
+            <button
+              className="btn btn-secondary icon-only"
+              onClick={handleStartAll}
+              disabled={bulkActionLoading || restartingAll}
+              title={t("instances.actions.startAll", "全部启动")}
+              aria-label={t("instances.actions.startAll", "全部启动")}
+            >
+              <Play size={16} />
+            </button>
+          )}
           {supportsStopControl && (
             <button
               className="btn btn-secondary icon-only"
@@ -2565,7 +2393,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         </div>
       )}
 
-      {loading ? (
+      {loading && instances.length === 0 ? (
         <div className="loading-state">{t("common.loading", "加载中...")}</div>
       ) : sortedInstances.length === 0 ? (
         <div className="empty-state">
@@ -2583,7 +2411,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         </div>
       ) : (
         <div
-          className={`instances-list${isGeminiApp ? " instances-list-no-pid" : ""}${
+          className={`instances-list${
             isCodexApp ? " instances-list-codex" : ""
           }`}
         >
@@ -2602,7 +2430,9 @@ export function InstancesManager<TAccount extends AccountLike>({
               isApiService: accountIsApiService,
             } = resolveAccount(instance);
             const accountDisabledByInit =
-              !instance.isDefault && instance.initialized === false;
+              !isGrokApp &&
+              !instance.isDefault &&
+              instance.initialized === false;
             const isInstanceStarting = startingInstanceIdSet.has(instance.id);
             const isInstanceStopping = stoppingInstanceIdSet.has(instance.id);
             const isInstanceBusy =
@@ -2703,9 +2533,34 @@ export function InstancesManager<TAccount extends AccountLike>({
                       onChange={(nextId) =>
                         handleInlineBindChange(instance, nextId)
                       }
+                      accounts={accounts}
+                      launchMode={launchMode}
+                      filterAccountsForLaunchMode={filterAccountsForLaunchMode}
+                      getAccountSearchText={getAccountSearchText}
+                      resolveAccountDisplayText={resolveAccountDisplayText}
+                      isApiServiceBindId={isApiServiceBindId}
+                      resolveBoundAccount={resolveBoundAccount}
+                      renderAccountQuotaPreview={renderAccountQuotaPreview}
+                      renderAccountBadge={renderAccountBadge}
+                      maskAccountText={maskAccountText}
+                      resolveApiServiceLabel={resolveApiServiceLabel}
+                      renderAccountMenuItems={renderAccountMenuItems}
                       disabled={isInstanceBusy}
                       missing={accountMissing}
                       placeholder={t("instances.labels.unbound", "未绑定")}
+                      unboundLabel={t("instances.form.unbound", "不绑定")}
+                      selectAccountLabel={t(
+                        "instances.form.selectAccount",
+                        "选择账号",
+                      )}
+                      missingAccountLabel={t(
+                        "instances.quota.accountMissing",
+                        "账号不存在",
+                      )}
+                      followCurrentLabel={t(
+                        "instances.form.followCurrent",
+                        "跟随当前账号",
+                      )}
                       instanceId={instance.id}
                       currentOpenId={openInlineMenuId}
                       onOpenChange={(open) => {
@@ -2795,7 +2650,9 @@ export function InstancesManager<TAccount extends AccountLike>({
                     title={t("instances.actions.edit", "编辑")}
                     onClick={() => openEditModal(instance)}
                     disabled={
-                      isInstanceBusy || restartingAll || bulkActionLoading
+                      isInstanceBusy ||
+                      restartingAll ||
+                      bulkActionLoading
                     }
                   >
                     <Pencil size={16} />
@@ -2821,15 +2678,20 @@ export function InstancesManager<TAccount extends AccountLike>({
       )}
 
       {initGuideInstance && (
-        <div
-          className="modal-overlay"
-        >
+        <div className="modal-overlay">
           <div
             className="modal instance-init-guide-modal"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={() => setInitGuideInstance(null)} title={t("common.back", "返回")} aria-label={t("common.back", "返回")}><ChevronLeft size={14} /></button>
+              <button
+                className="btn btn-secondary icon-only"
+                onClick={() => setInitGuideInstance(null)}
+                title={t("common.back", "返回")}
+                aria-label={t("common.back", "返回")}
+              >
+                <ChevronLeft size={14} />
+              </button>
               <h2>{t("instances.initGuide.title", "实例尚未初始化")}</h2>
               <button
                 className="modal-close"
@@ -2886,21 +2748,24 @@ export function InstancesManager<TAccount extends AccountLike>({
       )}
 
       {deleteConfirmInstance && (
-        <div
-          className="modal-overlay"
-        >
+        <div className="modal-overlay">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>{t("instances.delete.title", "删除实例")}</h2>
               <button
                 className="modal-close"
-                onClick={() => setDeleteConfirmInstance(null)}
+                onClick={dismissDeleteConfirm}
+                disabled={actionLoading === deleteConfirmInstance.id}
                 aria-label={t("common.close", "关闭")}
               >
                 <X />
               </button>
             </div>
             <div className="modal-body">
+              <ModalErrorMessage
+                message={deleteInstanceError}
+                scrollKey={deleteInstanceErrorScrollKey}
+              />
               <p className="form-hint">
                 {t(
                   "instances.delete.message",
@@ -2914,7 +2779,8 @@ export function InstancesManager<TAccount extends AccountLike>({
             <div className="modal-footer">
               <button
                 className="btn btn-secondary"
-                onClick={() => setDeleteConfirmInstance(null)}
+                onClick={dismissDeleteConfirm}
+                disabled={actionLoading === deleteConfirmInstance.id}
               >
                 {t("common.cancel", "取消")}
               </button>
@@ -2931,9 +2797,7 @@ export function InstancesManager<TAccount extends AccountLike>({
       )}
 
       {runningNoticeInstance && (
-        <div
-          className="modal-overlay"
-        >
+        <div className="modal-overlay">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>{t("instances.runningDialog.title", "实例已在运行")}</h2>
@@ -2985,7 +2849,14 @@ export function InstancesManager<TAccount extends AccountLike>({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={closeModal} title={t("common.back", "返回")} aria-label={t("common.back", "返回")}><ChevronLeft size={14} /></button>
+              <button
+                className="btn btn-secondary icon-only"
+                onClick={closeModal}
+                title={t("common.back", "返回")}
+                aria-label={t("common.back", "返回")}
+              >
+                <ChevronLeft size={14} />
+              </button>
               <h2>
                 {editing
                   ? t("instances.modal.editTitle", "编辑实例")
@@ -3014,7 +2885,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                 />
               </div>
 
-              {!editing && (
+              {!editing && supportsInstanceInitialization && (
                 <div className="form-group">
                   <label>{t("instances.form.initMode", "初始化方式")}</label>
                   <div className="instance-init-mode-group">
@@ -3199,31 +3070,55 @@ export function InstancesManager<TAccount extends AccountLike>({
                 </div>
               )}
 
-              {!editing && formInitMode === "copy" && (
-                <div className="form-group">
-                  <label>
-                    {t("instances.form.copySource", "复制来源实例")}
-                  </label>
-                  <InstanceSelect
-                    value={formCopySourceInstanceId}
-                    onChange={setFormCopySourceInstanceId}
-                  />
-                  <p className="form-hint">
-                    {t(
-                      "instances.form.copySourceDesc",
-                      "从指定实例复制配置与登录信息",
-                    )}
-                  </p>
-                  {selectedCopySourceInstance?.running && (
-                    <p className="form-hint warning">
+              {!editing &&
+                supportsInstanceInitialization &&
+                formInitMode === "copy" && (
+                  <div className="form-group">
+                    <label>
+                      {t("instances.form.copySource", "复制来源实例")}
+                    </label>
+                    <SingleSelectDropdown
+                      value={formCopySourceInstanceId}
+                      onChange={setFormCopySourceInstanceId}
+                      options={
+                        copySourceOptions.length > 0
+                          ? copySourceOptions
+                          : [
+                              {
+                                value: "__default__",
+                                label: t(
+                                  "instances.defaultName",
+                                  "默认实例",
+                                ),
+                              },
+                            ]
+                      }
+                      placeholder={t(
+                        "instances.form.copySourcePlaceholder",
+                        "选择来源实例",
+                      )}
+                      ariaLabel={t(
+                        "instances.form.copySource",
+                        "复制来源实例",
+                      )}
+                      className="instance-copy-source-select"
+                    />
+                    <p className="form-hint">
                       {t(
-                        "instances.form.copySourceRunningHint",
-                        "该实例正在运行，建议先关闭以避免数据不一致",
+                        "instances.form.copySourceDesc",
+                        "从指定实例复制配置与登录信息",
                       )}
                     </p>
-                  )}
-                </div>
-              )}
+                    {selectedCopySourceInstance?.running && (
+                      <p className="form-hint warning">
+                        {t(
+                          "instances.form.copySourceRunningHint",
+                          "该实例正在运行，建议先关闭以避免数据不一致",
+                        )}
+                      </p>
+                    )}
+                  </div>
+                )}
 
               {!editing ? (
                 <div className="form-group">
@@ -3233,17 +3128,18 @@ export function InstancesManager<TAccount extends AccountLike>({
                       ? `（${t("instances.form.optional", "可选")}）`
                       : ""}
                   </label>
-                  {formInitMode === "empty" ? (
+                  {supportsInstanceInitialization &&
+                  formInitMode === "empty" ? (
                     <>
-                      <FormAccountSelect
-                        value={null}
-                        onChange={() => {}}
-                        disabled
-                        placeholder={t(
+                      {renderFormAccountSelect({
+                        value: null,
+                        onChange: () => {},
+                        disabled: true,
+                        placeholder: t(
                           "instances.form.bindAfterInit",
                           "初始化后可绑定",
-                        )}
-                      />
+                        ),
+                      })}
                       <p className="form-hint">
                         {t(
                           "instances.form.bindDisabledHint",
@@ -3252,26 +3148,28 @@ export function InstancesManager<TAccount extends AccountLike>({
                       </p>
                     </>
                   ) : (
-                    <FormAccountSelect
-                      value={formBindAccountId || null}
-                      onChange={handleFormAccountChange}
-                    />
+                    renderFormAccountSelect({
+                      value: formBindAccountId || null,
+                      onChange: handleFormAccountChange,
+                    })
                   )}
                 </div>
               ) : (
                 <div className="form-group">
                   <label>{t("instances.form.bindAccount", "绑定账号")}</label>
-                  {editing?.initialized === false && !editing.isDefault ? (
+                  {!isGrokApp &&
+                  editing?.initialized === false &&
+                  !editing.isDefault ? (
                     <>
-                      <FormAccountSelect
-                        value={null}
-                        onChange={() => {}}
-                        disabled
-                        placeholder={t(
+                      {renderFormAccountSelect({
+                        value: null,
+                        onChange: () => {},
+                        disabled: true,
+                        placeholder: t(
                           "instances.form.bindAfterInit",
                           "初始化后可绑定",
-                        )}
-                      />
+                        ),
+                      })}
                       <p className="form-hint">
                         {t(
                           "instances.form.bindDisabledHint",
@@ -3280,15 +3178,15 @@ export function InstancesManager<TAccount extends AccountLike>({
                       </p>
                     </>
                   ) : (
-                    <FormAccountSelect
-                      value={formBindAccountId || null}
-                      onChange={handleFormAccountChange}
-                      missing={Boolean(
+                    renderFormAccountSelect({
+                      value: formBindAccountId || null,
+                      onChange: handleFormAccountChange,
+                      missing: Boolean(
                         formBindAccountId &&
                         !isApiServiceBindId(formBindAccountId) &&
                         resolveBoundAccount(formBindAccountId).missing,
-                      )}
-                    />
+                      ),
+                    })
                   )}
                 </div>
               )}
@@ -3326,7 +3224,8 @@ export function InstancesManager<TAccount extends AccountLike>({
                       className="btn btn-secondary instance-codex-quick-open-btn"
                       onClick={() => void handleOpenFormCodexConfigToml()}
                       disabled={
-                        formCodexOpenConfigLoading || formCodexQuickConfigLoading
+                        formCodexOpenConfigLoading ||
+                        formCodexQuickConfigLoading
                       }
                     >
                       <FolderOpen size={14} />
@@ -3339,7 +3238,9 @@ export function InstancesManager<TAccount extends AccountLike>({
                     </button>
                   </div>
                   {formCodexQuickConfigLoading ? (
-                    <p className="form-hint">{t("common.loading", "加载中...")}</p>
+                    <p className="form-hint">
+                      {t("common.loading", "加载中...")}
+                    </p>
                   ) : (
                     <>
                       <div
@@ -3355,7 +3256,9 @@ export function InstancesManager<TAccount extends AccountLike>({
                             key={option.id}
                             type="button"
                             role="radio"
-                            aria-checked={formCodexQuickConfigPresetId === option.id}
+                            aria-checked={
+                              formCodexQuickConfigPresetId === option.id
+                            }
                             className={`instance-codex-quick-preset-btn ${
                               formCodexQuickConfigPresetId === option.id
                                 ? "active"
@@ -3433,7 +3336,9 @@ export function InstancesManager<TAccount extends AccountLike>({
                               );
                             }}
                             disabled={!formCodexQuickIsCustomPreset}
-                            placeholder={String(DEFAULT_AUTO_COMPACT_TOKEN_LIMIT)}
+                            placeholder={String(
+                              DEFAULT_AUTO_COMPACT_TOKEN_LIMIT,
+                            )}
                           />
                           <p className="form-hint">
                             {t(

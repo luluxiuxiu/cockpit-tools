@@ -10,13 +10,13 @@ import { ClaudeIcon } from '../components/icons/ClaudeIcon';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
 import { KiroIcon } from '../components/icons/KiroIcon';
 import { CursorIcon } from '../components/icons/CursorIcon';
-import { GeminiIcon } from '../components/icons/GeminiIcon';
+import { GrokIcon } from '../components/icons/GrokIcon';
 import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { TraeCnIcon, TraeIcon, TraeSoloCnIcon, TraeSoloIcon } from '../components/icons/TraeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
 import { ZedIcon } from '../components/icons/ZedIcon';
-
+import { ZcodeIcon } from '../components/icons/ZcodeIcon';
 export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string {
   switch (platformId) {
     case 'antigravity':
@@ -27,6 +27,8 @@ export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string 
       return 'Antigravity CLI';
     case 'codex':
       return 'Codex';
+    case 'codex_api_service':
+      return _t('codex.apiService.navTitle', 'Codex API Service');
     case 'claude_manager':
       return 'Claude';
     case 'zed':
@@ -34,19 +36,21 @@ export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string 
     case 'github-copilot':
       return 'GitHub Copilot';
     case 'windsurf':
-      return 'Windsurf';
+      return 'Devin';
     case 'kiro':
       return 'Kiro';
     case 'cursor':
       return 'Cursor';
-    case 'gemini':
-      return 'Gemini Cli';
+    case 'grok':
+      return 'Grok CLI';
     case 'codebuddy':
       return 'CodeBuddy';
     case 'codebuddy_cn':
       return _t('nav.codebuddyCn', 'CodeBuddy CN');
     case 'qoder':
       return _t('nav.qoder', 'Qoder');
+    case 'zcode':
+      return 'ZCode';
     case 'trae':
       return _t('nav.trae', 'Trae');
     case 'trae_solo':
@@ -72,6 +76,8 @@ export function renderPlatformIcon(platformId: PlatformId, size = 20): ReactNode
       return <AntigravityCliIcon style={{ width: size, height: size }} />;
     case 'codex':
       return <CodexIcon size={size} />;
+    case 'codex_api_service':
+      return <CodexIcon size={size} />;
     case 'claude_manager':
       return <ClaudeIcon size={size} />;
     case 'zed':
@@ -84,14 +90,16 @@ export function renderPlatformIcon(platformId: PlatformId, size = 20): ReactNode
       return <KiroIcon style={{ width: size, height: size }} />;
     case 'cursor':
       return <CursorIcon style={{ width: size, height: size }} />;
-    case 'gemini':
-      return <GeminiIcon style={{ width: size, height: size }} />;
+    case 'grok':
+      return <GrokIcon style={{ width: size, height: size }} />;
     case 'codebuddy':
       return <CodebuddyIcon style={{ width: size, height: size }} />;
     case 'codebuddy_cn':
       return <CodebuddyIcon style={{ width: size, height: size }} />;
     case 'qoder':
       return <QoderIcon style={{ width: size, height: size }} />;
+    case 'zcode':
+      return <ZcodeIcon size={size} />;
     case 'trae':
       return <TraeIcon style={{ width: size, height: size }} />;
     case 'trae_solo':

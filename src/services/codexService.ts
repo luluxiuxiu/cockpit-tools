@@ -149,6 +149,17 @@ export async function clearCodexBatchDelete(jobId: string): Promise<void> {
 }
 
 /** 从本地 auth.json 导入账号 */
+/** 导入 named Codex access token（personal access token / at-*）账号 */
+export async function importCodexAccessTokenAccount(
+  name: string,
+  accessToken: string,
+): Promise<CodexAccount> {
+  return await invoke('import_codex_access_token_account', {
+    name,
+    accessToken,
+  });
+}
+
 export async function importCodexFromLocal(): Promise<CodexAccount> {
   return await invoke('import_codex_from_local');
 }
@@ -218,6 +229,9 @@ export interface CodexBatchImportPreview {
 export interface CodexBatchImportConfirmResult {
   imported: CodexAccount[];
   failed: { email: string; error: string }[];
+  cancelled: boolean;
+  processed: number;
+  total: number;
 }
 
 export async function startCodexBatchImportFromFiles(
@@ -275,9 +289,26 @@ export async function refreshAllCodexQuotas(): Promise<number> {
   return await invoke('refresh_all_codex_quotas');
 }
 
+/** 按 ID 列表限流并发刷新配额（分组/本地访问批量）；后端统一限流并只做一次 tray 更新 */
+export async function refreshCodexQuotasBatch(
+  accountIds: string[],
+  options?: { respectGroupQuotaRefresh?: boolean },
+): Promise<number> {
+  return await invoke('refresh_codex_quotas_batch', {
+    accountIds,
+    // 缺省 true：遵守分组「额度刷新」开关；显式刷新分组时传 false
+    respectGroupQuotaRefresh: options?.respectGroupQuotaRefresh ?? true,
+  });
+}
+
 /** 新 OAuth 流程：开始登录 */
 export async function startCodexOAuthLogin(): Promise<CodexOAuthLoginStartResponse> {
   return await invoke('codex_oauth_login_start');
+}
+
+/** 在内置无痕 WebView 中打开当前 Codex OAuth 授权地址 */
+export async function openCodexOAuthIncognitoWindow(authUrl: string): Promise<void> {
+  await invoke('codex_oauth_open_incognito_window', { authUrl });
 }
 
 /** 新 OAuth 流程：完成登录 */
@@ -330,6 +361,8 @@ export async function addCodexAccountWithApiKey(
   apiVisionRoutingModel?: string,
   accountName?: string,
   apiWireApi?: CodexProviderWireApi,
+  apiSupportsWebsockets?: boolean,
+  apiSyncModelCatalogToCodex?: boolean,
 ): Promise<CodexAccount> {
   return await invoke('add_codex_account_with_api_key', {
     apiKey,
@@ -338,7 +371,9 @@ export async function addCodexAccountWithApiKey(
     apiProviderId: apiProviderId ?? null,
     apiProviderName: apiProviderName ?? null,
     apiModelCatalog: apiModelCatalog ?? null,
+    apiSyncModelCatalogToCodex: apiSyncModelCatalogToCodex ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
     apiVisionRoutingModel: apiVisionRoutingModel ?? null,
@@ -362,6 +397,8 @@ export async function updateCodexApiKeyCredentials(
   apiModelVisionSupport?: Record<string, boolean>,
   apiVisionRoutingModel?: string,
   apiWireApi?: CodexProviderWireApi,
+  apiSupportsWebsockets?: boolean,
+  apiSyncModelCatalogToCodex?: boolean,
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_credentials', {
     accountId,
@@ -371,22 +408,50 @@ export async function updateCodexApiKeyCredentials(
     apiProviderId: apiProviderId ?? null,
     apiProviderName: apiProviderName ?? null,
     apiModelCatalog: apiModelCatalog ?? null,
+    apiSyncModelCatalogToCodex: apiSyncModelCatalogToCodex ?? null,
     apiWireApi: apiWireApi ?? null,
+    apiSupportsWebsockets: apiSupportsWebsockets ?? false,
     apiSupportsVision: apiSupportsVision ?? false,
     apiModelVisionSupport: apiModelVisionSupport ?? {},
     apiVisionRoutingModel: apiVisionRoutingModel ?? null,
   });
 }
 
+export async function syncCodexApiKeyProviderAccounts(input: {
+  accountIds: string[];
+  apiBaseUrl: string;
+  apiProviderMode: CodexApiProviderMode;
+  apiProviderId: string;
+  apiProviderName: string;
+  apiModelCatalog?: string[];
+  apiWireApi: CodexProviderWireApi;
+  apiSupportsWebsockets: boolean;
+  apiSupportsVision: boolean;
+  apiModelVisionSupport: Record<string, boolean>;
+  apiVisionRoutingModel?: string;
+}): Promise<number> {
+  return await invoke('sync_codex_api_key_provider_accounts', {
+    accountIds: input.accountIds,
+    apiBaseUrl: input.apiBaseUrl,
+    apiProviderMode: input.apiProviderMode,
+    apiProviderId: input.apiProviderId,
+    apiProviderName: input.apiProviderName,
+    apiModelCatalog: input.apiModelCatalog ?? null,
+    apiWireApi: input.apiWireApi,
+    apiSupportsWebsockets: input.apiSupportsWebsockets,
+    apiSupportsVision: input.apiSupportsVision,
+    apiModelVisionSupport: input.apiModelVisionSupport,
+    apiVisionRoutingModel: input.apiVisionRoutingModel ?? null,
+  });
+}
+
 export async function updateCodexApiKeyBoundOAuthAccount(
   accountId: string,
   boundOauthAccountId: string | null,
-  boundOauthUseLocalGateway = false,
 ): Promise<CodexAccount> {
   return await invoke('update_codex_api_key_bound_oauth_account', {
     accountId,
     boundOauthAccountId,
-    boundOauthUseLocalGateway,
   });
 }
 

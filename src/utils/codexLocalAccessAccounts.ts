@@ -1,8 +1,10 @@
 import {
   isCodexApiKeyAccount,
+  isCodexAgentIdentityAccount,
   isCodexExplicitFreePlanType,
+  isCodexPendingOAuthAccount,
   type CodexAccount,
-} from '../types/codex';
+} from '../types/codex.ts';
 
 const CHAT_COMPLETIONS_PROVIDER_HOSTS = [
   "api.deepseek.com",
@@ -40,7 +42,8 @@ const CHAT_COMPLETIONS_PROVIDER_HOSTS = [
 
 export type CodexLocalAccessAccountIneligibleReason =
   | "chat_completions_api_key"
-  | "free_restricted";
+  | "free_restricted"
+  | "pending_oauth";
 
 export function isCodexChatCompletionsApiKeyAccount(account: CodexAccount): boolean {
   if (!isCodexApiKeyAccount(account)) {
@@ -74,10 +77,18 @@ export function getCodexLocalAccessAccountIneligibleReason(
   account: CodexAccount,
   restrictFreeAccounts: boolean,
 ): CodexLocalAccessAccountIneligibleReason | null {
+  // Pending / incomplete OAuth accounts cannot serve API traffic.
+  if (isCodexPendingOAuthAccount(account)) {
+    return "pending_oauth";
+  }
   if (isCodexChatCompletionsApiKeyAccount(account)) {
     return "chat_completions_api_key";
   }
-  if (restrictFreeAccounts && isCodexExplicitFreePlanType(account.plan_type)) {
+  if (
+    restrictFreeAccounts &&
+    !isCodexAgentIdentityAccount(account) &&
+    isCodexExplicitFreePlanType(account.plan_type)
+  ) {
     return "free_restricted";
   }
   return null;
@@ -91,6 +102,27 @@ export function isCodexLocalAccessEligibleAccount(
     account,
     restrictFreeAccounts,
   ) === null;
+}
+
+export function canAddCodexAccountToLocalAccess(
+  account: CodexAccount,
+  currentAccountIds: ReadonlySet<string>,
+  restrictFreeAccounts: boolean,
+): boolean {
+  return (
+    !currentAccountIds.has(account.id) &&
+    isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)
+  );
+}
+
+export function isCodexOAuthBindingEligibleAccount(
+  account: CodexAccount,
+): boolean {
+  return (
+    !isCodexApiKeyAccount(account) &&
+    !isCodexAgentIdentityAccount(account) &&
+    Boolean(account.tokens.refresh_token?.trim())
+  );
 }
 
 export function filterCodexLocalAccessAccountIds(
@@ -114,4 +146,36 @@ export function filterCodexLocalAccessAccountIds(
   }
 
   return next;
+}
+
+export function resolveCodexLocalAccessInitialAccountIds(
+  accountIds: string[],
+  accounts: CodexAccount[],
+  restrictFreeAccounts: boolean,
+  accountsLoaded: boolean,
+): string[] {
+  if (!accountsLoaded) {
+    return Array.from(new Set(accountIds));
+  }
+  return filterCodexLocalAccessAccountIds(
+    accountIds,
+    accounts,
+    restrictFreeAccounts,
+  );
+}
+
+export function resolveImportedCodexAccountIdsForLocalAccess(
+  accounts: CodexAccount[],
+  syncAllImportedAccounts: boolean,
+  forceAgentIdentityAccounts: boolean,
+): string[] {
+  if (syncAllImportedAccounts) {
+    return accounts.map((account) => account.id);
+  }
+  if (!forceAgentIdentityAccounts) {
+    return [];
+  }
+  return accounts
+    .filter(isCodexAgentIdentityAccount)
+    .map((account) => account.id);
 }

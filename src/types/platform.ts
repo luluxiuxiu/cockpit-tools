@@ -5,16 +5,18 @@ export type PlatformId =
   | 'antigravity_ide'
   | 'antigravity_cli'
   | 'codex'
+  | 'codex_api_service'
   | 'claude_manager'
   | 'zed'
   | 'github-copilot'
   | 'windsurf'
   | 'kiro'
   | 'cursor'
-  | 'gemini'
+  | 'grok'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
+  | 'zcode'
   | 'trae'
   | 'trae_solo'
   | 'trae_cn'
@@ -24,6 +26,7 @@ export type PlatformId =
 export const ALL_PLATFORM_IDS: PlatformId[] = [
   'claude_manager',
   'codex',
+  'codex_api_service',
   'antigravity',
   'antigravity_ide',
   'antigravity_cli',
@@ -32,16 +35,24 @@ export const ALL_PLATFORM_IDS: PlatformId[] = [
   'windsurf',
   'kiro',
   'cursor',
-  'gemini',
+  'grok',
   'codebuddy',
   'codebuddy_cn',
   'qoder',
+  'zcode',
   'trae',
   'trae_solo',
   'trae_cn',
   'trae_solo_cn',
   'workbuddy',
 ];
+
+/** Platforms that do not own account lists (service / feature pages). */
+export const ACCOUNTLESS_PLATFORM_IDS: readonly PlatformId[] = ['codex_api_service'];
+
+export function isAccountPlatform(platformId: PlatformId): boolean {
+  return !ACCOUNTLESS_PLATFORM_IDS.includes(platformId);
+}
 
 export const MENU_HIDDEN_PLATFORM_IDS: PlatformId[] = [];
 
@@ -58,16 +69,18 @@ export const PLATFORM_PAGE_MAP: Record<PlatformId, Page> = {
   antigravity_ide: 'overview',
   antigravity_cli: 'overview',
   codex: 'codex',
+  codex_api_service: 'codex-api-service',
   claude_manager: 'claude',
   zed: 'zed',
   'github-copilot': 'github-copilot',
   windsurf: 'windsurf',
   kiro: 'kiro',
   cursor: 'cursor',
-  gemini: 'gemini',
+  grok: 'grok',
   codebuddy: 'codebuddy',
   codebuddy_cn: 'codebuddy-cn',
   qoder: 'qoder',
+  zcode: 'zcode',
   trae: 'trae',
   trae_solo: 'trae-solo',
   trae_cn: 'trae-cn',

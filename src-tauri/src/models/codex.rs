@@ -89,8 +89,12 @@ pub struct CodexAccount {
     pub api_provider_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_model_catalog: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub api_sync_model_catalog_to_codex: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_wire_api: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub api_supports_websockets: bool,
     #[serde(default)]
     pub api_supports_vision: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -99,7 +103,7 @@ pub struct CodexAccount {
     pub api_vision_routing_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bound_oauth_account_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub bound_oauth_use_local_gateway: bool,
     pub user_id: Option<String>,
     pub plan_type: Option<String>,
@@ -109,6 +113,8 @@ pub struct CodexAccount {
     pub auth_file_plan_type: Option<String>,
     pub account_id: Option<String>,
     pub organization_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_identity: Option<CodexAgentIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -190,6 +196,27 @@ pub struct CodexTokens {
     pub access_token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
+}
+
+/// Codex Agent Identity credentials from the official auth.json format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexAgentIdentity {
+    #[serde(alias = "agentRuntimeId")]
+    pub agent_runtime_id: String,
+    #[serde(alias = "agentPrivateKey")]
+    pub agent_private_key: String,
+    #[serde(default, alias = "taskId", skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(alias = "accountId")]
+    pub account_id: String,
+    #[serde(alias = "chatgptUserId")]
+    pub chatgpt_user_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, alias = "planType", skip_serializing_if = "Option::is_none")]
+    pub plan_type: Option<String>,
+    #[serde(default, alias = "chatgptAccountIsFedramp")]
+    pub chatgpt_account_is_fedramp: bool,
 }
 
 /// Codex 配额数据（5小时配额 + 周配额）
@@ -274,6 +301,15 @@ pub struct CodexAuthFile {
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<CodexAuthTokens>,
+    #[serde(
+        default,
+        alias = "agentIdentity",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub agent_identity: Option<CodexAgentIdentity>,
+    /// Official personal access token auth shape (`at-*` only, no refresh/id token).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personal_access_token: Option<String>,
     #[serde(default)]
     pub last_refresh: Option<serde_json::Value>, // 可以是字符串或数字
 }
@@ -375,7 +411,9 @@ impl CodexAccount {
             api_provider_id: None,
             api_provider_name: None,
             api_model_catalog: Vec::new(),
+            api_sync_model_catalog_to_codex: false,
             api_wire_api: None,
+            api_supports_websockets: false,
             api_supports_vision: false,
             api_model_vision_support: HashMap::new(),
             api_vision_routing_model: None,
@@ -387,6 +425,7 @@ impl CodexAccount {
             auth_file_plan_type: None,
             account_id: None,
             organization_id: None,
+            agent_identity: None,
             account_name: None,
             account_structure: None,
             account_note: None,
@@ -441,7 +480,9 @@ impl CodexAccount {
         account.api_provider_id = api_provider_id;
         account.api_provider_name = api_provider_name;
         account.api_model_catalog = api_model_catalog;
+        account.api_sync_model_catalog_to_codex = false;
         account.api_wire_api = None;
+        account.api_supports_websockets = false;
         account.api_supports_vision = false;
         account.api_model_vision_support = HashMap::new();
         account.api_vision_routing_model = None;
@@ -453,7 +494,39 @@ impl CodexAccount {
         self.auth_mode == CodexAuthMode::Apikey
     }
 
+    pub fn is_agent_identity_auth(&self) -> bool {
+        self.agent_identity.is_some()
+    }
+
     pub fn update_last_used(&mut self) {
         self.last_used = chrono::Utc::now().timestamp();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_account_without_websocket_field_defaults_to_false() {
+        let account = CodexAccount::new_api_key(
+            "legacy-account".to_string(),
+            "api-key-account".to_string(),
+            "sk-test".to_string(),
+            CodexApiProviderMode::Custom,
+            Some("https://relay.example.com/v1".to_string()),
+            Some("relay".to_string()),
+            Some("Relay".to_string()),
+            Vec::new(),
+        );
+        let mut value = serde_json::to_value(account).expect("serialize account");
+        value
+            .as_object_mut()
+            .expect("account object")
+            .remove("api_supports_websockets");
+
+        let restored: CodexAccount = serde_json::from_value(value).expect("deserialize account");
+        assert!(!restored.api_supports_websockets);
+        assert!(!restored.api_sync_model_catalog_to_codex);
     }
 }

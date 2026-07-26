@@ -382,6 +382,55 @@ pub fn repair_session_visibility_quick_across_instances(
     repair_session_visibility_auto_across_instances(CodexSessionVisibilityAutoRepairMode::Current)
 }
 
+/// Repairs the launch target only, using the same bounded quick-repair plan as the
+/// automatic multi-instance repair. The caller supplies the already-resolved data
+/// directory so this path never discovers or mutates another configured instance.
+pub fn repair_session_visibility_quick_for_instance(
+    instance_id: &str,
+    instance_name: &str,
+    data_dir: &Path,
+) -> Result<CodexSessionVisibilityRepairSummary, String> {
+    let started = std::time::Instant::now();
+    modules::logger::log_info(&format!(
+        "[Codex Session Visibility] launch-target quick repair started: instance_id={}, instance_name={}, data_dir={}",
+        instance_id,
+        instance_name,
+        data_dir.display()
+    ));
+    let result = repair_session_visibility_for_instances_with_options(
+        CodexSessionVisibilityRepairOptions::for_auto_repair_mode(
+            CodexSessionVisibilityAutoRepairMode::Current,
+        ),
+        None,
+        None,
+        RepairTargetSelection::default(),
+        vec![CodexSyncInstance {
+            id: instance_id.to_string(),
+            name: instance_name.to_string(),
+            data_dir: data_dir.to_path_buf(),
+            last_pid: None,
+        }],
+    );
+    match &result {
+        Ok(summary) => modules::logger::log_info(&format!(
+            "[Codex Session Visibility] launch-target quick repair finished: instance_id={}, mutated_instances={}, rollout_files={}, sqlite_rows={}, elapsed_ms={}",
+            instance_id,
+            summary.mutated_instance_count,
+            summary.changed_rollout_file_count,
+            summary.updated_sqlite_row_count,
+            started.elapsed().as_millis()
+        )),
+        Err(error) => modules::logger::log_warn(&format!(
+            "[Codex Session Visibility] launch-target quick repair failed: instance_id={}, data_dir={}, elapsed_ms={}, error={}",
+            instance_id,
+            data_dir.display(),
+            started.elapsed().as_millis(),
+            error
+        )),
+    }
+    result
+}
+
 pub fn repair_session_visibility_auto_across_instances(
     mode: CodexSessionVisibilityAutoRepairMode,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
@@ -1468,13 +1517,9 @@ fn collect_rollout_provider_ids(data_dir: &Path) -> Result<Vec<String>, String> 
             continue;
         }
         for rollout_path in list_rollout_files(&root_dir)? {
-            let content = fs::read_to_string(&rollout_path).map_err(|error| {
-                format!(
-                    "读取 rollout 文件失败 ({}): {}",
-                    rollout_path.display(),
-                    error
-                )
-            })?;
+            let Some(content) = read_rollout_text(&rollout_path)? else {
+                continue;
+            };
             for line in content.lines() {
                 let Ok(record) = serde_json::from_str::<JsonValue>(line.trim()) else {
                     continue;
@@ -1581,13 +1626,9 @@ fn collect_rollout_provider_changes(
         let rollout_paths = list_rollout_files(&root_dir)?;
         for rollout_path in rollout_paths {
             let rewrite = if options.rewrite_all_session_meta {
-                let content = fs::read_to_string(&rollout_path).map_err(|error| {
-                    format!(
-                        "读取 rollout 文件失败 ({}): {}",
-                        rollout_path.display(),
-                        error
-                    )
-                })?;
+                let Some(content) = read_rollout_text(&rollout_path)? else {
+                    continue;
+                };
                 rewrite_rollout_session_meta_providers(&content, target_provider)?
             } else {
                 rewrite_rollout_first_session_meta_provider(&rollout_path, target_provider)?
@@ -1655,17 +1696,13 @@ fn collect_referenced_rollout_provider_changes(
 
     let mut changes = Vec::new();
     for (rollout_path, target_modified_at) in candidates {
-        if !rollout_path.exists() {
+        if !rollout_path.exists() || !is_plain_rollout_file(&rollout_path) {
             continue;
         }
         let rewrite = if options.rewrite_all_session_meta {
-            let content = fs::read_to_string(&rollout_path).map_err(|error| {
-                format!(
-                    "读取 rollout 文件失败 ({}): {}",
-                    rollout_path.display(),
-                    error
-                )
-            })?;
+            let Some(content) = read_rollout_text(&rollout_path)? else {
+                continue;
+            };
             rewrite_rollout_session_meta_providers(&content, target_provider)?
         } else {
             rewrite_rollout_first_session_meta_provider(&rollout_path, target_provider)?
@@ -1917,14 +1954,37 @@ fn read_first_line(path: &Path) -> Result<Option<(String, String)>, String> {
         (&buffer[..], "")
     };
 
-    let line = String::from_utf8(line_bytes.to_vec()).map_err(|error| {
-        format!(
-            "解析 rollout 首行 UTF-8 失败 ({}): {}",
+    let line = match String::from_utf8(line_bytes.to_vec()) {
+        Ok(line) => line,
+        Err(error) => {
+            modules::logger::log_warn(&format!(
+                "跳过非 UTF-8 Codex rollout 文件 ({}): {}",
+                path.display(),
+                error
+            ));
+            return Ok(None);
+        }
+    };
+    Ok(Some((line, separator.to_string())))
+}
+
+fn read_rollout_text(path: &Path) -> Result<Option<String>, String> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+            modules::logger::log_warn(&format!(
+                "跳过非 UTF-8 Codex rollout 文件 ({}): {}",
+                path.display(),
+                error
+            ));
+            Ok(None)
+        }
+        Err(error) => Err(format!(
+            "读取 rollout 文件失败 ({}): {}",
             path.display(),
             error
-        )
-    })?;
-    Ok(Some((line, separator.to_string())))
+        )),
+    }
 }
 
 fn parse_session_meta_record(first_line: &str) -> Option<JsonValue> {
@@ -1976,13 +2036,9 @@ fn collect_rollout_thread_facts(
             continue;
         }
         for rollout_path in list_rollout_files(&root_dir)? {
-            let content = fs::read_to_string(&rollout_path).map_err(|error| {
-                format!(
-                    "读取 rollout 文件失败 ({}): {}",
-                    rollout_path.display(),
-                    error
-                )
-            })?;
+            let Some(content) = read_rollout_text(&rollout_path)? else {
+                continue;
+            };
             let has_user_event =
                 content.contains("\"user_message\"") || content.contains("\"user_input\"");
             for line in content.lines() {
@@ -2053,19 +2109,22 @@ fn list_rollout_files(root_dir: &Path) -> Result<Vec<PathBuf>, String> {
             result.extend(list_rollout_files(&path)?);
             continue;
         }
-        if file_type.is_file() {
-            let file_name = path
-                .file_name()
-                .and_then(|item| item.to_str())
-                .unwrap_or_default();
-            if file_name.starts_with("rollout-") && file_name.ends_with(".jsonl") {
-                result.push(path);
-            }
+        if file_type.is_file() && is_plain_rollout_file(&path) {
+            result.push(path);
         }
     }
 
     result.sort();
     Ok(result)
+}
+
+fn is_plain_rollout_file(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|item| item.to_str())
+        .unwrap_or_default();
+    file_name.starts_with("rollout-")
+        && path.extension().and_then(|item| item.to_str()) == Some("jsonl")
 }
 
 fn read_session_index_map(root_dir: &Path) -> Result<HashMap<String, JsonValue>, String> {
@@ -3808,6 +3867,118 @@ mod tests {
         CodexSessionVisibilityRepairOptions::for_mode(mode)
     }
 
+    fn write_quick_repair_rollout_reference(
+        data_dir: &Path,
+        thread_id: &str,
+        relative_path: &Path,
+        content: &[u8],
+    ) -> PathBuf {
+        fs::write(
+            data_dir.join(CONFIG_FILE_NAME),
+            "model_provider = \"relay\"\n",
+        )
+        .expect("write config");
+
+        let rollout_path = data_dir.join(relative_path);
+        fs::create_dir_all(rollout_path.parent().expect("rollout parent"))
+            .expect("create rollout dir");
+        fs::write(&rollout_path, content).expect("write rollout");
+
+        let db_path = data_dir.join(STATE_DB_FILE);
+        let connection = Connection::open(&db_path).expect("open sqlite");
+        connection
+            .execute(
+                "CREATE TABLE threads (
+                    id TEXT PRIMARY KEY,
+                    rollout_path TEXT,
+                    model_provider TEXT,
+                    has_user_event INTEGER,
+                    first_user_message TEXT,
+                    thread_source TEXT
+                )",
+                [],
+            )
+            .expect("create threads table");
+        let rollout_relative = relative_path.to_string_lossy().replace('\\', "/");
+        connection
+            .execute(
+                "INSERT INTO threads (id, rollout_path, model_provider, has_user_event, first_user_message, thread_source)
+                 VALUES (?1, ?2, 'openai', 0, 'hello', '')",
+                (thread_id, rollout_relative.as_str()),
+            )
+            .expect("insert thread");
+        drop(connection);
+        rollout_path
+    }
+
+    fn read_thread_provider(data_dir: &Path, thread_id: &str) -> String {
+        Connection::open(data_dir.join(STATE_DB_FILE))
+            .expect("open sqlite for read")
+            .query_row(
+                "SELECT model_provider FROM threads WHERE id = ?1",
+                [thread_id],
+                |row| row.get(0),
+            )
+            .expect("read provider")
+    }
+
+    #[test]
+    fn quick_repair_skips_compressed_referenced_rollout() {
+        let data_dir = make_temp_dir("codex-session-compressed-reference-test");
+        let rollout_bytes = [0x28, 0xb5, 0x2f, 0xfd, 0xff, 0x00];
+        let rollout_path = write_quick_repair_rollout_reference(
+            &data_dir,
+            "compressed-thread",
+            Path::new("archived_sessions/rollout-compressed-thread.jsonl.zst"),
+            &rollout_bytes,
+        );
+
+        let summary = repair_session_visibility_quick_for_instance(
+            "compressed-instance",
+            "Compressed instance",
+            &data_dir,
+        )
+        .expect("compressed rollout should not abort quick repair");
+
+        assert_eq!(summary.instance_count, 1);
+        assert_eq!(
+            read_thread_provider(&data_dir, "compressed-thread"),
+            "relay"
+        );
+        assert_eq!(
+            fs::read(&rollout_path).expect("read rollout"),
+            rollout_bytes
+        );
+        fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn quick_repair_skips_non_utf8_plain_rollout() {
+        let data_dir = make_temp_dir("codex-session-non-utf8-reference-test");
+        let rollout_bytes = [0xff, 0xfe, 0xfd, b'\n'];
+        let rollout_path = write_quick_repair_rollout_reference(
+            &data_dir,
+            "non-utf8-thread",
+            Path::new("sessions/2026/07/17/rollout-non-utf8-thread.jsonl"),
+            &rollout_bytes,
+        );
+
+        let summary = repair_session_visibility_quick_for_instance(
+            "non-utf8-instance",
+            "Non UTF-8 instance",
+            &data_dir,
+        )
+        .expect("non UTF-8 rollout should not abort quick repair");
+
+        assert_eq!(summary.instance_count, 1);
+        assert_eq!(read_thread_provider(&data_dir, "non-utf8-thread"), "relay");
+        assert_eq!(
+            fs::read(&rollout_path).expect("read rollout"),
+            rollout_bytes
+        );
+        fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
     #[test]
     fn sqlite_repair_marks_threads_with_first_user_message_visible() {
         let data_dir = make_temp_dir("codex-session-visibility-sqlite-test");
@@ -4400,5 +4571,139 @@ mod tests {
         assert_eq!(backup_count, 0);
 
         fs::remove_dir_all(&data_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn launch_target_quick_repair_is_bidirectional_idempotent_and_instance_scoped() {
+        fn write_fixture(
+            data_dir: &Path,
+            thread_id: &str,
+            configured_provider: &str,
+            history_provider: &str,
+        ) -> (PathBuf, PathBuf) {
+            fs::write(
+                data_dir.join(CONFIG_FILE_NAME),
+                format!("model_provider = \"{}\"\n", configured_provider),
+            )
+            .expect("write config");
+
+            let rollout_dir = data_dir.join("sessions").join("2026").join("07").join("14");
+            fs::create_dir_all(&rollout_dir).expect("create rollout dir");
+            let rollout_path = rollout_dir.join(format!("rollout-{}.jsonl", thread_id));
+            let rollout_relative = rollout_path
+                .strip_prefix(data_dir)
+                .expect("relative rollout")
+                .to_string_lossy()
+                .replace('\\', "/");
+            fs::write(
+                &rollout_path,
+                format!(
+                    "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"model_provider\":\"{}\"}}}}\n",
+                    thread_id, history_provider
+                ),
+            )
+            .expect("write rollout");
+
+            let db_path = data_dir.join(STATE_DB_FILE);
+            let connection = Connection::open(&db_path).expect("open sqlite");
+            connection
+                .execute(
+                    "CREATE TABLE threads (
+                        id TEXT PRIMARY KEY,
+                        rollout_path TEXT,
+                        model_provider TEXT,
+                        has_user_event INTEGER,
+                        first_user_message TEXT,
+                        thread_source TEXT
+                    )",
+                    [],
+                )
+                .expect("create threads table");
+            connection
+                .execute(
+                    "INSERT INTO threads (id, rollout_path, model_provider, has_user_event, first_user_message, thread_source)
+                     VALUES (?1, ?2, ?3, 0, 'hello', '')",
+                    (thread_id, rollout_relative.as_str(), history_provider),
+                )
+                .expect("insert thread");
+            drop(connection);
+            (db_path, rollout_path)
+        }
+
+        fn read_provider(db_path: &Path, thread_id: &str) -> String {
+            Connection::open(db_path)
+                .expect("open sqlite for read")
+                .query_row(
+                    "SELECT model_provider FROM threads WHERE id = ?1",
+                    [thread_id],
+                    |row| row.get(0),
+                )
+                .expect("read provider")
+        }
+
+        let target_dir = make_temp_dir("codex-launch-target-repair-test");
+        let other_dir = make_temp_dir("codex-launch-other-instance-test");
+        let (target_db, target_rollout) =
+            write_fixture(&target_dir, "target-thread", "relay", "openai");
+        let (other_db, other_rollout) =
+            write_fixture(&other_dir, "other-thread", "openai", "other-provider");
+        let other_rollout_before = fs::read(&other_rollout).expect("read other rollout before");
+
+        let first = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repair target instance");
+        assert_eq!(first.instance_count, 1);
+        assert_eq!(first.mutated_instance_count, 1);
+        assert_eq!(first.items[0].instance_id, "target-instance");
+        assert_eq!(read_provider(&target_db, "target-thread"), "relay");
+        assert!(fs::read_to_string(&target_rollout)
+            .expect("read target rollout")
+            .contains("\"model_provider\":\"relay\""));
+
+        assert_eq!(read_provider(&other_db, "other-thread"), "other-provider");
+        assert_eq!(
+            fs::read(&other_rollout).expect("read other rollout after"),
+            other_rollout_before
+        );
+        assert!(fs::read_dir(&other_dir)
+            .expect("read other instance dir")
+            .filter_map(Result::ok)
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(SESSION_VISIBILITY_REPAIR_BACKUP_PREFIX)));
+
+        let second = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repeat target repair");
+        assert_eq!(second.mutated_instance_count, 0);
+        assert_eq!(second.changed_rollout_file_count, 0);
+        assert_eq!(second.updated_sqlite_row_count, 0);
+
+        fs::write(
+            target_dir.join(CONFIG_FILE_NAME),
+            "model_provider = \"openai\"\n",
+        )
+        .expect("switch target back to account provider");
+        let switched_back = repair_session_visibility_quick_for_instance(
+            "target-instance",
+            "Target instance",
+            &target_dir,
+        )
+        .expect("repair target after provider switch");
+        assert_eq!(switched_back.mutated_instance_count, 1);
+        assert_eq!(read_provider(&target_db, "target-thread"), "openai");
+        assert!(fs::read_to_string(&target_rollout)
+            .expect("read switched-back rollout")
+            .contains("\"model_provider\":\"openai\""));
+
+        fs::remove_dir_all(&target_dir).expect("cleanup target dir");
+        fs::remove_dir_all(&other_dir).expect("cleanup other dir");
     }
 }

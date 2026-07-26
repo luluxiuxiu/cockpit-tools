@@ -4,16 +4,18 @@ import type {
   CodexLocalAccessChatResult,
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessAccountModelRule,
+  CodexLocalAccessAppendAccountsResult,
   CodexLocalAccessClientBaseUrlHost,
   CodexLocalAccessGatewayMode,
-  CodexLocalAccessImageGenerationMode,
   CodexLocalAccessModelAlias,
   CodexLocalAccessModelPricing,
+  CodexLocalAccessOAuthQuotaReserve,
   CodexLocalAccessPortCleanupResult,
   CodexLocalAccessRequestLogQuery,
   CodexLocalAccessRoutingStrategy,
   CodexLocalAccessScope,
   CodexLocalAccessState,
+  CodexLocalAccessStatsWindow,
   CodexLocalAccessTestResult,
   CodexLocalAccessTimeoutPreset,
   CodexLocalAccessTimeouts,
@@ -27,11 +29,23 @@ export async function getCodexLocalAccessState(): Promise<CodexLocalAccessState>
 export async function saveCodexLocalAccessAccounts(
   accountIds: string[],
   restrictFreeAccounts: boolean,
+  backupAccountIds?: string[],
+  sessionAffinity?: boolean,
+  sessionAffinityTtlMs?: number,
 ): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_save_accounts", {
     accountIds,
     restrictFreeAccounts,
+    backupAccountIds: backupAccountIds ?? null,
+    sessionAffinity: sessionAffinity ?? null,
+    sessionAffinityTtlMs: sessionAffinityTtlMs ?? null,
   });
+}
+
+export async function appendCodexLocalAccessAccounts(
+  accountIds: string[],
+): Promise<CodexLocalAccessAppendAccountsResult> {
+  return await invoke("codex_local_access_append_accounts", { accountIds });
 }
 
 export async function removeCodexLocalAccessAccount(
@@ -40,17 +54,23 @@ export async function removeCodexLocalAccessAccount(
   return await invoke("codex_local_access_remove_account", { accountId });
 }
 
+export async function recoverCodexLocalAccessAccounts(
+  accountIds: string[],
+): Promise<CodexLocalAccessState> {
+  return await invoke("codex_local_access_recover_accounts", { accountIds });
+}
+
 export async function rotateCodexLocalAccessApiKey(): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_rotate_api_key");
 }
 
 export async function updateCodexLocalAccessBoundOAuthAccount(
   boundOauthAccountId: string | null,
-  boundOauthUseLocalGateway = false,
+  boundOauthQuotaReserve: CodexLocalAccessOAuthQuotaReserve | null = null,
 ): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_update_bound_oauth_account", {
     boundOauthAccountId,
-    boundOauthUseLocalGateway,
+    boundOauthQuotaReserve,
   });
 }
 
@@ -65,14 +85,24 @@ export async function queryCodexLocalAccessRequestLogs(
     page: query.page,
     pageSize: query.pageSize,
     statsRange: query.statsRange ?? null,
+    startAt: query.startAt ?? null,
+    endAt: query.endAt ?? null,
     modelQuery: query.modelQuery ?? null,
     accountQuery: query.accountQuery ?? null,
     apiKeyQuery: query.apiKeyQuery ?? null,
+    instanceQuery: query.instanceQuery ?? null,
     gatewayMode: query.gatewayMode ?? null,
     requestKind: query.requestKind ?? null,
     success: query.success ?? null,
     errorCategory: query.errorCategory ?? null,
   });
+}
+
+export async function queryCodexLocalAccessStats(
+  startAt: number,
+  endAt: number,
+): Promise<CodexLocalAccessStatsWindow> {
+  return await invoke("codex_local_access_query_stats", { startAt, endAt });
 }
 
 export async function prepareCodexLocalAccessForRestart(): Promise<CodexLocalAccessState> {
@@ -136,9 +166,12 @@ export async function repriceCodexLocalAccessRequestLogs(): Promise<CodexLocalAc
 export async function updateCodexLocalAccessRoutingOptions(payload: {
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
+  responsesWebsocketsEnabled: boolean;
   maxRetryCredentials: number;
   maxRetryIntervalMs: number;
   disableCooling: boolean;
+  immediateSseResponse: boolean;
+  maxConcurrentImageRequests: number;
 }): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_update_routing_options", payload);
 }
@@ -203,14 +236,6 @@ export async function updateCodexLocalAccessClientBaseUrlHost(
   });
 }
 
-export async function updateCodexLocalAccessImageGenerationMode(
-  imageGenerationMode: CodexLocalAccessImageGenerationMode,
-): Promise<CodexLocalAccessState> {
-  return await invoke("codex_local_access_update_image_generation_mode", {
-    imageGenerationMode,
-  });
-}
-
 export async function createCodexLocalAccessApiKey(
   label?: string | null,
 ): Promise<CodexLocalAccessState> {
@@ -227,6 +252,8 @@ export async function updateCodexLocalAccessApiKey(
     modelPrefix?: string | null;
     allowedModels?: string[] | null;
     excludedModels?: string[] | null;
+    accountIds?: string[] | null;
+    inheritAccountPool?: boolean | null;
   },
 ): Promise<CodexLocalAccessState> {
   return await invoke("codex_local_access_update_api_key", {
@@ -236,6 +263,20 @@ export async function updateCodexLocalAccessApiKey(
     modelPrefix: payload.modelPrefix ?? null,
     allowedModels: payload.allowedModels ?? null,
     excludedModels: payload.excludedModels ?? null,
+    accountIds: payload.accountIds ?? null,
+    inheritAccountPool: payload.inheritAccountPool ?? null,
+  });
+}
+
+export async function setCodexLocalAccessApiKeyAccountPriority(
+  apiKeyId: string,
+  accountId: string,
+  pinned: boolean,
+): Promise<CodexLocalAccessState> {
+  return await invoke("codex_local_access_set_api_key_account_priority", {
+    apiKeyId,
+    accountId,
+    pinned,
   });
 }
 
