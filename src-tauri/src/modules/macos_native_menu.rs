@@ -2344,8 +2344,12 @@ mod imp {
     fn resolve_codebuddy_plan_badge(
         account: &crate::models::codebuddy::CodebuddyAccount,
     ) -> String {
+        // 官方档位优先级：flagship > premium > standard > youth > free/trial
+        const FLAGSHIP_MON: &str = "TCACA_code_027_0FCGVA6vSa";
+        const PREMIUM_MON: &str = "TCACA_code_026_BaESVICNoi";
         const PRO_MON: &str = "TCACA_code_002_AkiJS3ZHF5";
         const PRO_YEAR: &str = "TCACA_code_003_FAnt7lcmRT";
+        const YOUTH_MON: &str = "TCACA_code_023_4xbGhMrE6q";
         const GIFT: &str = "TCACA_code_006_DbXS0lrypC";
 
         let profile_type = account
@@ -2365,18 +2369,24 @@ mod imp {
             .into_iter()
             .filter(|item| is_active_resource(item))
             .collect();
-        if active.iter().any(|item| {
-            matches!(
-                resource_package_code(item).as_deref(),
-                Some(PRO_MON | PRO_YEAR)
-            )
-        }) {
-            return "PRO".to_string();
+        let has_code = |code: &str| {
+            active
+                .iter()
+                .any(|item| resource_package_code(item).as_deref() == Some(code))
+        };
+        if has_code(FLAGSHIP_MON) {
+            return "FLAGSHIP".to_string();
         }
-        if active
-            .iter()
-            .any(|item| resource_package_code(item).as_deref() == Some(GIFT))
-        {
+        if has_code(PREMIUM_MON) {
+            return "PREMIUM".to_string();
+        }
+        if has_code(PRO_YEAR) || has_code(PRO_MON) {
+            return "STANDARD".to_string();
+        }
+        if has_code(YOUTH_MON) {
+            return "YOUTH".to_string();
+        }
+        if has_code(GIFT) {
             return "TRIAL".to_string();
         }
         if active.is_empty() {
@@ -2386,16 +2396,28 @@ mod imp {
             ])
             .unwrap_or("");
             let normalized = source.to_ascii_lowercase();
-            if normalized.contains("enterprise") {
+            if normalized.contains("enterprise") || normalized.contains("企业") {
                 return "ENTERPRISE".to_string();
             }
-            if normalized.contains("trial") {
+            if normalized.contains("flagship") || normalized.contains("旗舰") {
+                return "FLAGSHIP".to_string();
+            }
+            if normalized.contains("premium") || normalized.contains("高级") {
+                return "PREMIUM".to_string();
+            }
+            if normalized.contains("standard")
+                || normalized.contains("标准")
+                || normalized.contains("pro")
+            {
+                return "STANDARD".to_string();
+            }
+            if normalized.contains("youth") || normalized.contains("青春") {
+                return "YOUTH".to_string();
+            }
+            if normalized.contains("trial") || normalized.contains("体验") {
                 return "TRIAL".to_string();
             }
-            if normalized.contains("pro") {
-                return "PRO".to_string();
-            }
-            if normalized.contains("free") {
+            if normalized.contains("free") || normalized.contains("免费") {
                 return "FREE".to_string();
             }
             if !source.is_empty() {
@@ -2409,8 +2431,11 @@ mod imp {
     fn resolve_workbuddy_plan_badge(
         account: &crate::models::workbuddy::WorkbuddyAccount,
     ) -> String {
+        const FLAGSHIP_MON: &str = "TCACA_code_027_0FCGVA6vSa";
+        const PREMIUM_MON: &str = "TCACA_code_026_BaESVICNoi";
         const PRO_MON: &str = "TCACA_code_002_AkiJS3ZHF5";
         const PRO_YEAR: &str = "TCACA_code_003_FAnt7lcmRT";
+        const YOUTH_MON: &str = "TCACA_code_023_4xbGhMrE6q";
         const GIFT: &str = "TCACA_code_006_DbXS0lrypC";
 
         let profile_type = account
@@ -2430,18 +2455,24 @@ mod imp {
             .into_iter()
             .filter(|item| is_active_resource(item))
             .collect();
-        if active.iter().any(|item| {
-            matches!(
-                resource_package_code(item).as_deref(),
-                Some(PRO_MON | PRO_YEAR)
-            )
-        }) {
-            return "PRO".to_string();
+        let has_code = |code: &str| {
+            active
+                .iter()
+                .any(|item| resource_package_code(item).as_deref() == Some(code))
+        };
+        if has_code(FLAGSHIP_MON) {
+            return "FLAGSHIP".to_string();
         }
-        if active
-            .iter()
-            .any(|item| resource_package_code(item).as_deref() == Some(GIFT))
-        {
+        if has_code(PREMIUM_MON) {
+            return "PREMIUM".to_string();
+        }
+        if has_code(PRO_YEAR) || has_code(PRO_MON) {
+            return "STANDARD".to_string();
+        }
+        if has_code(YOUTH_MON) {
+            return "YOUTH".to_string();
+        }
+        if has_code(GIFT) {
             return "TRIAL".to_string();
         }
         if active.is_empty() {
@@ -2451,16 +2482,28 @@ mod imp {
             ])
             .unwrap_or("");
             let normalized = source.to_ascii_lowercase();
-            if normalized.contains("enterprise") {
+            if normalized.contains("enterprise") || normalized.contains("企业") {
                 return "ENTERPRISE".to_string();
             }
-            if normalized.contains("trial") {
+            if normalized.contains("flagship") || normalized.contains("旗舰") {
+                return "FLAGSHIP".to_string();
+            }
+            if normalized.contains("premium") || normalized.contains("高级") {
+                return "PREMIUM".to_string();
+            }
+            if normalized.contains("standard")
+                || normalized.contains("标准")
+                || normalized.contains("pro")
+            {
+                return "STANDARD".to_string();
+            }
+            if normalized.contains("youth") || normalized.contains("青春") {
+                return "YOUTH".to_string();
+            }
+            if normalized.contains("trial") || normalized.contains("体验") {
                 return "TRIAL".to_string();
             }
-            if normalized.contains("pro") {
-                return "PRO".to_string();
-            }
-            if normalized.contains("free") {
+            if normalized.contains("free") || normalized.contains("免费") {
                 return "FREE".to_string();
             }
             if !source.is_empty() {
@@ -2482,6 +2525,12 @@ mod imp {
         const ACTIVITY: &str = "TCACA_code_007_nzdH5h4Nl0";
         const FREE_MON: &str = "TCACA_code_008_cfWoLwvjU4";
         const EXTRA: &str = "TCACA_code_009_0XmEQc2xOf";
+        const YOUTH_MON: &str = "TCACA_code_023_4xbGhMrE6q";
+        const PREMIUM_MON: &str = "TCACA_code_026_BaESVICNoi";
+        const FLAGSHIP_MON: &str = "TCACA_code_027_0FCGVA6vSa";
+        const VERSION_BONUS: &str = "TCACA_code_028_NtpWi0jzXs";
+        const COMPENSATION: &str = "TCACA_code_029_6wCGEWquYy";
+        const NEW_USER_BONUS: &str = "TCACA_code_030_BjSt89qTvr";
 
         let all: Vec<&Value> = resource_account_roots(quota_raw, usage_raw)
             .into_iter()
@@ -2504,7 +2553,7 @@ mod imp {
             .filter(|item| {
                 matches!(
                     resource_package_code(item).as_deref(),
-                    Some(PRO_MON | PRO_YEAR)
+                    Some(PRO_MON | PRO_YEAR | YOUTH_MON | PREMIUM_MON | FLAGSHIP_MON)
                 )
             })
             .collect();
@@ -2531,16 +2580,21 @@ mod imp {
         let activity: Vec<&Value> = all
             .iter()
             .copied()
-            .filter(|item| resource_package_code(item).as_deref() == Some(ACTIVITY))
+            .filter(|item| {
+                matches!(
+                    resource_package_code(item).as_deref(),
+                    Some(ACTIVITY | VERSION_BONUS | COMPENSATION | NEW_USER_BONUS)
+                )
+            })
             .collect();
 
         let merged_trial_or_free_mon = aggregate_resource_entries(&trial_or_free_mon);
         let merged_free = aggregate_resource_entries(&free);
         let mut ordered = Vec::new();
+        ordered.extend(pro.iter().copied());
         if let Some(item) = merged_trial_or_free_mon.as_ref() {
             ordered.push(item);
         }
-        ordered.extend(pro.iter().copied());
         ordered.extend(activity.iter().copied());
         if let Some(item) = merged_free.as_ref() {
             ordered.push(item);
@@ -2572,6 +2626,18 @@ mod imp {
                 "活动赠送包",
                 &[],
             ),
+            Some("TCACA_code_028_NtpWi0jzXs") => translate_or(
+                lang,
+                "codebuddy.quotaQuery.packageTitle.versionBonus",
+                "版本赠送包",
+                &[],
+            ),
+            Some("TCACA_code_029_6wCGEWquYy" | "TCACA_code_030_BjSt89qTvr") => translate_or(
+                lang,
+                "codebuddy.quotaQuery.packageTitle.benefit",
+                "权益赠送包",
+                &[],
+            ),
             Some(
                 "TCACA_code_001_PqouKr6QWV"
                 | "TCACA_code_006_DbXS0lrypC"
@@ -2582,10 +2648,28 @@ mod imp {
                 "基础体验包",
                 &[],
             ),
+            Some("TCACA_code_027_0FCGVA6vSa") => translate_or(
+                lang,
+                "codebuddy.quotaQuery.packageTitle.flagship",
+                "旗舰版订阅",
+                &[],
+            ),
+            Some("TCACA_code_026_BaESVICNoi") => translate_or(
+                lang,
+                "codebuddy.quotaQuery.packageTitle.premium",
+                "高级版订阅",
+                &[],
+            ),
             Some("TCACA_code_002_AkiJS3ZHF5" | "TCACA_code_003_FAnt7lcmRT") => translate_or(
                 lang,
-                "codebuddy.quotaQuery.packageTitle.pro",
-                "专业版订阅",
+                "codebuddy.quotaQuery.packageTitle.standard",
+                "标准版订阅",
+                &[],
+            ),
+            Some("TCACA_code_023_4xbGhMrE6q") => translate_or(
+                lang,
+                "codebuddy.quotaQuery.packageTitle.youth",
+                "青春版订阅",
                 &[],
             ),
             _ => resource.package_name.clone().unwrap_or_else(|| {
@@ -2610,6 +2694,18 @@ mod imp {
                 "活动赠送包",
                 &[],
             ),
+            Some("TCACA_code_028_NtpWi0jzXs") => translate_or(
+                lang,
+                "workbuddy.quotaQuery.packageTitle.versionBonus",
+                "版本赠送包",
+                &[],
+            ),
+            Some("TCACA_code_029_6wCGEWquYy" | "TCACA_code_030_BjSt89qTvr") => translate_or(
+                lang,
+                "workbuddy.quotaQuery.packageTitle.benefit",
+                "权益赠送包",
+                &[],
+            ),
             Some(
                 "TCACA_code_001_PqouKr6QWV"
                 | "TCACA_code_006_DbXS0lrypC"
@@ -2620,10 +2716,35 @@ mod imp {
                 "基础体验包",
                 &[],
             ),
+            Some("TCACA_code_027_0FCGVA6vSa") => translate_or(
+                lang,
+                "workbuddy.quotaQuery.packageTitle.flagship",
+                "旗舰版订阅",
+                &[],
+            ),
+            Some("TCACA_code_026_BaESVICNoi") => translate_or(
+                lang,
+                "workbuddy.quotaQuery.packageTitle.premium",
+                "高级版订阅",
+                &[],
+            ),
             Some("TCACA_code_002_AkiJS3ZHF5" | "TCACA_code_003_FAnt7lcmRT") => resource
                 .package_name
                 .clone()
-                .unwrap_or_else(|| "PRO".to_string()),
+                .unwrap_or_else(|| {
+                    translate_or(
+                        lang,
+                        "workbuddy.quotaQuery.packageTitle.standard",
+                        "标准版",
+                        &[],
+                    )
+                }),
+            Some("TCACA_code_023_4xbGhMrE6q") => translate_or(
+                lang,
+                "workbuddy.quotaQuery.packageTitle.youth",
+                "青春版订阅",
+                &[],
+            ),
             _ => resource.package_name.clone().unwrap_or_else(|| {
                 translate_or(
                     lang,

@@ -179,17 +179,6 @@ import {
   isCockpitApiProviderBaseUrl,
   resolveCodexApiProviderPresetId,
 } from "../utils/codexProviderPresets";
-import {
-  APIKEY_FUN_PROVIDER_BASE_URL,
-  isApiKeyFunProviderBaseUrl,
-  normalizeApiKeyFunOfficialUrl,
-  resolveApiKeyFunWireApi,
-} from "../utils/apikeyFunLinks";
-import {
-  APIKEY_FUN_PREFILL_EVENT,
-  consumeApiKeyFunPrefill,
-  type ApiKeyFunPrefillPayload,
-} from "../utils/apiKeyFunPrefill";
 import { resolveCodexProviderCapabilityProfile } from "../utils/codexProviderGateway";
 import {
   formatCodexQuotaPoolPercent,
@@ -205,8 +194,6 @@ import {
   type CodexModelProviderUsageSummary,
   upsertCodexModelProviderFromCredential,
 } from "../services/codexModelProviderService";
-import { useSponsorStore } from "../stores/useSponsorStore";
-import type { Sponsor } from "../types/sponsor";
 import {
   buildValidAccountsFilterOption,
   splitValidityFilterValues,
@@ -608,20 +595,10 @@ function writeCodexApiKeyUsageCache(
 }
 
 function isSponsorModelProvider(
-  provider: CodexModelProvider | null | undefined,
-  sponsorTemplates: SponsorApiProviderTemplate[],
+  _provider: CodexModelProvider | null | undefined,
+  _sponsorTemplates: SponsorApiProviderTemplate[] = [],
 ): boolean {
-  if (!provider) return false;
-  if (provider.sourceTag) {
-    return sponsorTemplates.some(
-      (template) => template.id === provider.sourceTag,
-    );
-  }
-  const normalizedBaseUrl = normalizeHttpBaseUrl(provider.baseUrl);
-  if (!normalizedBaseUrl) return false;
-  return sponsorTemplates.some(
-    (template) => normalizeHttpBaseUrl(template.baseUrl) === normalizedBaseUrl,
-  );
+  return false;
 }
 
 interface LocalAccessAccountPoolHealthSummary {
@@ -973,7 +950,6 @@ function maskCodexApiKey(value: string): string {
 
 interface SponsorApiProviderTemplate {
   id: string;
-  sponsor: Sponsor;
   name: string;
   baseUrl: string;
   modelCatalog: string[];
@@ -985,43 +961,9 @@ interface SponsorApiProviderTemplate {
 }
 
 function normalizeSponsorApiProviderTemplates(
-  sponsors: Sponsor[] | undefined,
+  _sponsors?: unknown,
 ): SponsorApiProviderTemplate[] {
-  const templates: SponsorApiProviderTemplate[] = [];
-  for (const sponsor of sponsors ?? []) {
-    const integration = sponsor.integration;
-    if (
-      !integration?.enabled ||
-      !integration.quickConfigure ||
-      !integration.baseUrl?.trim()
-    ) {
-      continue;
-    }
-    templates.push({
-      id: `relay:${sponsor.id}`,
-      sponsor,
-      name: sponsor.name,
-      baseUrl: integration.baseUrl.trim(),
-      modelCatalog: integration.models ?? [],
-      supportsVision: integration.supportsVision === true,
-      website: normalizeApiKeyFunOfficialUrl(
-        integration.website || sponsor.url,
-      ),
-      apiKeyUrl: normalizeApiKeyFunOfficialUrl(
-        integration.apiKeyUrl || sponsor.url,
-      ),
-      wireApi: resolveApiKeyFunWireApi(
-        integration.baseUrl,
-        integration.wireApi ?? null,
-      ),
-      integrationType: integration.type ?? null,
-    });
-  }
-  return templates.sort((a, b) => {
-    const priority = a.sponsor.priority - b.sponsor.priority;
-    if (priority !== 0) return priority;
-    return a.name.localeCompare(b.name);
-  });
+  return [];
 }
 
 function isRelayApiProviderTemplateId(value?: string | null): boolean {
@@ -1029,24 +971,15 @@ function isRelayApiProviderTemplateId(value?: string | null): boolean {
 }
 
 function getDefaultApiProviderPresetId(
-  sponsorTemplates: SponsorApiProviderTemplate[],
+  _sponsorTemplates: SponsorApiProviderTemplate[] = [],
 ): string {
-  return sponsorTemplates[0]?.id ?? DEFAULT_CODEX_API_PROVIDER_ID;
+  return DEFAULT_CODEX_API_PROVIDER_ID;
 }
 
 function resolveApiProviderPresetDefaults(
   providerId: string,
-  sponsorTemplates: SponsorApiProviderTemplate[],
+  _sponsorTemplates: SponsorApiProviderTemplate[] = [],
 ): { baseUrl: string; providerName: string } {
-  const sponsorTemplate = sponsorTemplates.find(
-    (template) => template.id === providerId,
-  );
-  if (sponsorTemplate) {
-    return {
-      baseUrl: sponsorTemplate.baseUrl,
-      providerName: sponsorTemplate.name,
-    };
-  }
   const preset = findCodexApiProviderPresetById(providerId);
   return {
     baseUrl: preset?.baseUrls[0] ?? DEFAULT_CODEX_API_BASE_URL,
@@ -1055,8 +988,6 @@ function resolveApiProviderPresetDefaults(
 }
 
 export function CodexAccountsPage() {
-  const sponsorModule = useSponsorStore((state) => state.state.sponsorModule);
-  const fetchSponsorState = useSponsorStore((state) => state.fetchState);
   const [activeTab, setActiveTab] = useState<CodexTab>("overview");
   const [wakeupPresetManagerSignal, setWakeupPresetManagerSignal] = useState(0);
   const [fullQuotaWakeupOpenRequest, setFullQuotaWakeupOpenRequest] =
@@ -3556,9 +3487,6 @@ export function CodexAccountsPage() {
   const apiSwitchNoticeAutoCloseTimerRef = useRef<number | null>(null);
   const skipManagedProviderApiKeyAutofillRef = useRef(false);
   const apiProviderPresetExplicitlySelectedRef = useRef(false);
-  const apiKeyFunPrefillModelCatalogRef = useRef<string[] | null>(null);
-  const pendingApiKeyFunCodexPrefillRef =
-    useRef<ApiKeyFunPrefillPayload | null>(null);
 
   useEffect(
     () => () => {
@@ -3603,8 +3531,8 @@ export function CodexAccountsPage() {
     [apiProviderPresetId],
   );
   const sponsorApiProviderTemplates = useMemo(
-    () => normalizeSponsorApiProviderTemplates(sponsorModule?.sponsors),
-    [sponsorModule?.sponsors],
+    () => normalizeSponsorApiProviderTemplates(),
+    [],
   );
   const selectedSponsorApiProviderTemplate = useMemo(
     () =>
@@ -3904,18 +3832,14 @@ export function CodexAccountsPage() {
         };
       }
 
-      const isApiKeyFunProvider = isApiKeyFunProviderBaseUrl(normalizedBaseUrl);
-      const apiKeyFunModelCatalog = isApiKeyFunProvider
-        ? (apiKeyFunPrefillModelCatalogRef.current ?? undefined)
-        : undefined;
       const trimmedName = customProviderName.trim();
       const customProviderDisplayName =
-        trimmedName || (isApiKeyFunProvider ? "APIKEY.FUN" : undefined);
+        trimmedName || undefined;
       return {
         apiProviderMode: "custom",
         apiProviderName: customProviderDisplayName,
-        apiModelCatalog: apiKeyFunModelCatalog,
-        apiWireApi: isApiKeyFunProvider ? "responses" : undefined,
+        apiModelCatalog: undefined,
+        apiWireApi: undefined,
         accountName: customProviderDisplayName,
       };
     },
@@ -4001,15 +3925,8 @@ export function CodexAccountsPage() {
   }, [reloadManagedProviders]);
 
   useEffect(() => {
-    void fetchSponsorState();
-  }, [fetchSponsorState]);
-
-  useEffect(() => {
     if (!showAddModal) {
       apiProviderPresetExplicitlySelectedRef.current = false;
-      if (!pendingApiKeyFunCodexPrefillRef.current) {
-        apiKeyFunPrefillModelCatalogRef.current = null;
-      }
       const defaultProvider = resolveApiProviderPresetDefaults(
         defaultApiProviderPresetId,
         sponsorApiProviderTemplates,
@@ -5654,92 +5571,6 @@ export function CodexAccountsPage() {
     },
     [selectedManagedProvider],
   );
-
-  const applyApiKeyFunPrefill = useCallback(
-    (request: ApiKeyFunPrefillPayload) => {
-      if (request.target !== "codex") return;
-      const apiKey = request.apiKey.trim();
-      if (!apiKey) return;
-
-      pendingApiKeyFunCodexPrefillRef.current = request;
-      openCodexAddModal("apikey");
-    },
-    [openCodexAddModal],
-  );
-
-  useEffect(() => {
-    if (!showAddModal || addTab !== "apikey") return;
-    const request = pendingApiKeyFunCodexPrefillRef.current;
-    if (!request) return;
-    pendingApiKeyFunCodexPrefillRef.current = null;
-
-    const apiKey = request.apiKey.trim();
-    if (!apiKey) return;
-
-    const requestBaseUrl =
-      request.baseUrl?.trim() || APIKEY_FUN_PROVIDER_BASE_URL;
-    const normalizedRequestBaseUrl =
-      normalizeHttpBaseUrl(requestBaseUrl)?.toLowerCase() ?? "";
-    const sponsorTemplate =
-      sponsorApiProviderTemplates.find((template) => {
-        const normalizedTemplateBaseUrl =
-          normalizeHttpBaseUrl(template.baseUrl)?.toLowerCase() ?? "";
-        const searchable = [
-          template.name,
-          template.website,
-          template.apiKeyUrl,
-          template.baseUrl,
-        ]
-          .join(" ")
-          .toLowerCase();
-        return (
-          normalizedTemplateBaseUrl === normalizedRequestBaseUrl ||
-          searchable.includes("apikey.fun") ||
-          searchable.includes("api.apikey.fun")
-        );
-      }) ?? null;
-
-    skipManagedProviderApiKeyAutofillRef.current = true;
-    apiProviderPresetExplicitlySelectedRef.current = true;
-    apiKeyFunPrefillModelCatalogRef.current = request.modelCatalog ?? null;
-    setApiKeyInput(apiKey);
-    setApiKeyInputVisible(false);
-    setApiBaseUrlInput(sponsorTemplate?.baseUrl ?? requestBaseUrl);
-    setManagedProviderId("");
-    setManagedProviderApiKeyId("");
-    setApiProviderPresetId(sponsorTemplate?.id ?? CODEX_API_PROVIDER_CUSTOM_ID);
-    setNewManagedProviderNameInput(
-      sponsorTemplate?.name ?? request.providerName?.trim() ?? "APIKEY.FUN",
-    );
-    setAddStatus("idle");
-    setAddMessage(
-      t(
-        "apiKeyFun.prefill.codexReady",
-        "已带入 APIKEY.FUN 配置，请确认后添加到 Codex。",
-      ),
-    );
-  }, [
-    addTab,
-    setAddMessage,
-    setAddStatus,
-    showAddModal,
-    sponsorApiProviderTemplates,
-    t,
-  ]);
-
-  useEffect(() => {
-    const consumePrefill = () => {
-      const request = consumeApiKeyFunPrefill("codex");
-      if (request) {
-        applyApiKeyFunPrefill(request);
-      }
-    };
-    consumePrefill();
-    window.addEventListener(APIKEY_FUN_PREFILL_EVENT, consumePrefill);
-    return () => {
-      window.removeEventListener(APIKEY_FUN_PREFILL_EVENT, consumePrefill);
-    };
-  }, [applyApiKeyFunPrefill]);
 
   const handleSelectEditingApiProviderPreset = useCallback(
     (providerId: string) => {

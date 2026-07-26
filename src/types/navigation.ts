@@ -1,7 +1,6 @@
 export type Page =
   | 'dashboard'
   | 'manual'
-  | 'api-relay'
   | 'overview'
   | 'codex'
   | 'claude'

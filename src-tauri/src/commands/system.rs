@@ -678,6 +678,8 @@ fn normalize_antigravity_metadata_target(target: Option<&str>) -> Option<&'stati
     match target.unwrap_or("").trim().to_ascii_lowercase().as_str() {
         "antigravity" => Some("antigravity"),
         "antigravity_ide" | "antigravity-ide" | "ide" => Some("antigravity_ide"),
+        // CLI 无独立安装元数据，探测时按桌面目标忽略
+        "antigravity_cli" | "antigravity-cli" | "agy" | "cli" => None,
         _ => None,
     }
 }

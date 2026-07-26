@@ -93,11 +93,16 @@ fn build_antigravity_credential_payload(account: &Account) -> Result<String, Str
     .map_err(|e| format!("序列化 Antigravity 系统凭据失败: {}", e))
 }
 
+/// 将账号 OAuth 凭据写入系统密钥环目标 `gemini:antigravity`。
+///
+/// 该目标与 Google Antigravity CLI（`agy`）及
+/// [agy-account-switcher](https://github.com/Alex-Liu2024/agy-account-switcher) 一致：
+/// 桌面/Cockpit 切号后，CLI 会立即使用新身份，无需再次浏览器登录。
 pub fn write_antigravity_system_credential(account: &Account) -> Result<(), String> {
     let payload_json = build_antigravity_credential_payload(account)?;
 
     crate::modules::logger::log_info(&format!(
-        "[Antigravity 2.0] 写入系统凭据: {}",
+        "[Antigravity 2.0] 写入系统凭据（Desktop + AGY CLI）: {}",
         account.email
     ));
 

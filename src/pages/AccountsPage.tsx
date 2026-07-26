@@ -1618,7 +1618,16 @@ export function AccountsPage({ onNavigate }: AccountsPageProps) {
     try {
       const account = await switchAccount(accountId, antigravityRuntimeTarget)
       await fetchCurrentAccount(antigravityRuntimeTarget)
-      setMessage({ text: t('messages.switched', { email: maskAccountText(account.email) }) })
+      if (antigravityRuntimeTarget === 'antigravity_cli') {
+        setMessage({
+          text: t('messages.switchedAgyCli', {
+            email: maskAccountText(account.email),
+            defaultValue: '已切换 AGY CLI 账号：{{email}}（系统凭据 gemini:antigravity）',
+          }),
+        })
+      } else {
+        setMessage({ text: t('messages.switched', { email: maskAccountText(account.email) }) })
+      }
     } catch (e) {
       const raw = formatSwitchError(e)
       if (!raw.startsWith('APP_PATH_NOT_FOUND:')) {

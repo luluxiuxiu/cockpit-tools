@@ -10,10 +10,6 @@ import {
   resolveCodexApiProviderPresetId,
 } from '../utils/codexProviderPresets';
 import {
-  APIKEY_FUN_DEFAULT_MODEL_CATALOG,
-  isApiKeyFunProviderBaseUrl,
-} from '../utils/apikeyFunLinks';
-import {
   queryModelProviderUsage,
   type ModelProviderUsageSummary,
 } from './modelProviderUsageService';
@@ -145,33 +141,7 @@ function normalizeIntegrationType(value: unknown): 'sub2api' | 'new_api' | undef
   return value === 'sub2api' || value === 'new_api' ? value : undefined;
 }
 
-function migrateApiKeyFunProviderWireApi(
-  providers: CodexModelProvider[],
-): { providers: CodexModelProvider[]; changed: boolean } {
-  let changed = false;
-  const next = providers.map((provider) => {
-    if (
-      isApiKeyFunProviderBaseUrl(provider.baseUrl) &&
-      provider.wireApi === 'chat_completions'
-    ) {
-      changed = true;
-      return {
-        ...provider,
-        wireApi: 'responses' as CodexProviderWireApi,
-        enableModePreference:
-          provider.enableModePreference === 'gateway' ? 'direct' : provider.enableModePreference,
-        updatedAt: Date.now(),
-      };
-    }
-    return provider;
-  });
-  return { providers: next, changed };
-}
-
 function presetModelCatalogForBaseUrl(baseUrl: string): string[] | undefined {
-  if (isApiKeyFunProviderBaseUrl(baseUrl)) {
-    return normalizeModelCatalog(APIKEY_FUN_DEFAULT_MODEL_CATALOG);
-  }
   return normalizeModelCatalog(
     findCodexApiProviderPresetById(resolveCodexApiProviderPresetId(baseUrl))
       ?.modelCatalog,
@@ -343,11 +313,8 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
     }
     return true;
   });
-  const migration = migrateApiKeyFunProviderWireApi(loaded);
-  loaded = migration.providers;
   if (
     loaded.length !== loadedProviders.length ||
-    migration.changed ||
     loadResult.migratedBoundOauthUseLocalGateway
   ) {
     await saveProvidersToDisk(loaded).catch(() => { });

@@ -72,22 +72,62 @@ export type CodebuddyAccount = CodebuddySuiteAccountBase;
 
 /**
  * 套餐徽章类型
+ * 标准版/高级版/旗舰版对齐官方 web client（HAR: plans-usage）
  */
-export type CodebuddyPlanBadge = 'FREE' | 'PRO' | 'TRIAL' | 'ENTERPRISE' | 'UNKNOWN';
+export type CodebuddyPlanBadge =
+  | 'FREE'
+  | 'TRIAL'
+  | 'YOUTH'
+  | 'STANDARD'
+  | 'PREMIUM'
+  | 'FLAGSHIP'
+  | 'PRO'
+  | 'ENTERPRISE'
+  | 'UNKNOWN';
 
 /**
  * 套餐代码常量
  * 与官方 CodeBuddy web client 的 PackageCode enum 对齐
+ * 来源：pro_www.codebuddy.cn.har / www.codebuddy.cn_Archive_pro+.har
  */
 export const PACKAGE_CODE = {
   free: 'TCACA_code_001_PqouKr6QWV',
+  /** 标准版-按月（官方 label: standard / 个人标准版） */
   proMon: 'TCACA_code_002_AkiJS3ZHF5',
+  /** 标准版-按年 */
   proYear: 'TCACA_code_003_FAnt7lcmRT',
   gift: 'TCACA_code_006_DbXS0lrypC',
   activity: 'TCACA_code_007_nzdH5h4Nl0',
   freeMon: 'TCACA_code_008_cfWoLwvjU4',
   extra: 'TCACA_code_009_0XmEQc2xOf',
+  /** 青春版-按月 */
+  youthMon: 'TCACA_code_023_4xbGhMrE6q',
+  /** 高级版-按月（官方 label: premium） */
+  premiumMon: 'TCACA_code_026_BaESVICNoi',
+  /** 旗舰版-按月（官方 label: flagship） */
+  flagshipMon: 'TCACA_code_027_0FCGVA6vSa',
+  /** 版本赠送包 */
+  versionBonus: 'TCACA_code_028_NtpWi0jzXs',
+  /** 权益赠送包/补偿包 */
+  compensation: 'TCACA_code_029_6wCGEWquYy',
+  /** 新用户赠送包 */
+  newUserBonus: 'TCACA_code_030_BjSt89qTvr',
 } as const;
+
+/**
+ * 付费档位优先级（官方 gd 映射：flagship:4 > premium:3 > standard:2 > youth:1 > free:0）
+ */
+export const PLAN_TIER_PRIORITY: Record<string, number> = {
+  FLAGSHIP: 4,
+  PREMIUM: 3,
+  STANDARD: 2,
+  PRO: 2,
+  YOUTH: 1,
+  TRIAL: 0,
+  FREE: 0,
+  ENTERPRISE: 5,
+  UNKNOWN: -1,
+};
 
 /**
  * 资源状态常量
@@ -109,11 +149,15 @@ export const ENTERPRISE_ACCOUNT_TYPES = ['ultimate', 'exclusive', 'premise'];
  * 套餐详情
  */
 export interface CodebuddyPlanDetail {
+  /** pro=付费档（含标准/高级/旗舰/青春/企业），free=免费/体验 */
   type: 'pro' | 'free';
   isPro: boolean;
   isTrial: boolean;
+  /** STANDARD=标准版 PREMIUM=高级版 FLAGSHIP=旗舰版 */
   badge: string;
   packageCode: string | null;
+  /** 官方 tier 键：free/youth/standard/premium/flagship */
+  tier?: 'free' | 'youth' | 'standard' | 'premium' | 'flagship' | 'enterprise' | 'trial' | 'unknown';
 }
 
 /**

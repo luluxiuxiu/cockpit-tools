@@ -243,10 +243,29 @@
   z-index: -1;
 }
 
-.tier-badge.pro {
+.tier-badge.pro,
+.tier-badge.standard {
   background: var(--plan-pro-bg);
   color: var(--plan-pro-color);
   border: 1px solid var(--plan-pro-border);
+}
+
+.tier-badge.premium {
+  background: var(--plan-business-bg);
+  color: var(--plan-business-color);
+  border: 1px solid var(--plan-business-border);
+}
+
+.tier-badge.flagship {
+  background: var(--plan-ultra-bg);
+  color: var(--plan-ultra-color);
+  border: 1px solid var(--plan-ultra-border);
+}
+
+.tier-badge.youth {
+  background: var(--plan-individual-bg);
+  color: var(--plan-individual-color);
+  border: 1px solid var(--plan-individual-border);
 }
 
 .tier-badge.pro-plus,

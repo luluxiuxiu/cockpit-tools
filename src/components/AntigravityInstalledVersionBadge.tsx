@@ -15,6 +15,12 @@ export function AntigravityInstalledVersionBadge() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    if (runtimeTarget === 'antigravity_cli') {
+      setInfo(null);
+      setLoaded(true);
+      return;
+    }
+
     let cancelled = false;
     let timer = 0;
     setLoaded(false);
@@ -62,6 +68,12 @@ export function AntigravityInstalledVersionBadge() {
   }, [runtimeTarget]);
 
   const title = useMemo(() => {
+    if (runtimeTarget === 'antigravity_cli') {
+      return t(
+        'runtime.installedVersion.agyCli',
+        'Antigravity CLI (agy)：通过系统凭据 gemini:antigravity 切换账号',
+      );
+    }
     if (!loaded) {
       return t('runtime.installedVersion.loading', '正在检测安装版本');
     }
@@ -69,7 +81,19 @@ export function AntigravityInstalledVersionBadge() {
       return t('runtime.installedVersion.missing', '未检测到已安装版本');
     }
     return `${info.product_name || 'Antigravity'} v${info.version}\n${info.app_path || ''}`;
-  }, [info, loaded, t]);
+  }, [info, loaded, runtimeTarget, t]);
+
+  if (runtimeTarget === 'antigravity_cli') {
+    return (
+      <div className="installed-version-badge" title={title}>
+        <span className="installed-version-dot" />
+        <span className="installed-version-name">AGY CLI</span>
+        <span className="installed-version-value">
+          {t('runtime.installedVersion.cliMode', '凭据切换')}
+        </span>
+      </div>
+    );
+  }
 
   if (!loaded) {
     return (

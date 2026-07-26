@@ -91,18 +91,12 @@ import {
   type CodexModelProviderUsageSummary,
   updateCodexModelProvider,
 } from "../../services/codexModelProviderService";
-import { useSponsorStore } from "../../stores/useSponsorStore";
-import type { Sponsor } from "../../types/sponsor";
 import {
   CODEX_API_PROVIDER_CUSTOM_ID,
   CODEX_API_PROVIDER_PRESETS,
   findCodexApiProviderPresetById,
   resolveCodexApiProviderPresetId,
 } from "../../utils/codexProviderPresets";
-import {
-  normalizeApiKeyFunOfficialUrl,
-  resolveApiKeyFunWireApi,
-} from "../../utils/apikeyFunLinks";
 import {
   getCodexPlanFilterKey,
   getCodexSubscriptionPresentation,
@@ -189,17 +183,10 @@ function visionModelTextFromCapabilities(
 }
 
 function isSponsorProvider(
-  provider: CodexModelProvider,
-  sponsorTemplates: SponsorProviderTemplate[],
+  _provider: CodexModelProvider,
+  _sponsorTemplates: SponsorProviderTemplate[] = [],
 ): boolean {
-  if (provider.sourceTag) {
-    return sponsorTemplates.some((template) => template.id === provider.sourceTag);
-  }
-  const normalizedBaseUrl = normalizeCodexModelProviderBaseUrl(provider.baseUrl);
-  return sponsorTemplates.some(
-    (template) =>
-      normalizeCodexModelProviderBaseUrl(template.baseUrl) === normalizedBaseUrl,
-  );
+  return false;
 }
 
 function readCodexInstanceSortPreference(): {
@@ -357,7 +344,6 @@ const EMPTY_FORM: ProviderFormState = {
 
 interface SponsorProviderTemplate {
   id: string;
-  sponsor: Sponsor;
   name: string;
   baseUrl: string;
   modelCatalog: string[];
@@ -513,8 +499,6 @@ export function CodexModelProviderManager({
   onProvidersChanged,
 }: CodexModelProviderManagerProps) {
   const { t } = useTranslation();
-  const sponsorModule = useSponsorStore((state) => state.state.sponsorModule);
-  const fetchSponsorState = useSponsorStore((state) => state.fetchState);
   const [providers, setProviders] = useState<CodexModelProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -627,40 +611,10 @@ export function CodexModelProviderManager({
   const [batchTestResultSelectedProviderIds, setBatchTestResultSelectedProviderIds] =
     useState<Set<string>>(() => new Set());
 
-  const sponsorProviderTemplates = useMemo<SponsorProviderTemplate[]>(() => {
-    const sponsors = sponsorModule?.sponsors ?? [];
-    const templates: SponsorProviderTemplate[] = [];
-    for (const sponsor of sponsors) {
-      const integration = sponsor.integration;
-      if (
-        !integration?.enabled ||
-        !integration.quickConfigure ||
-        !integration.baseUrl?.trim()
-      ) {
-        continue;
-      }
-      templates.push({
-        id: `relay:${sponsor.id}`,
-        sponsor,
-        name: sponsor.name,
-        baseUrl: integration.baseUrl.trim(),
-        modelCatalog: integration.models ?? [],
-        supportsVision: integration.supportsVision === true,
-        website: normalizeApiKeyFunOfficialUrl(integration.website || sponsor.url),
-        apiKeyUrl: normalizeApiKeyFunOfficialUrl(integration.apiKeyUrl || sponsor.url),
-        wireApi: resolveApiKeyFunWireApi(
-          integration.baseUrl,
-          integration.wireApi ?? null,
-        ),
-        integrationType: integration.type ?? null,
-      });
-    }
-    return templates.sort((a, b) => {
-      const priority = a.sponsor.priority - b.sponsor.priority;
-      if (priority !== 0) return priority;
-      return a.name.localeCompare(b.name);
-    });
-  }, [sponsorModule?.sponsors]);
+  const sponsorProviderTemplates = useMemo<SponsorProviderTemplate[]>(
+    () => [],
+    [],
+  );
 
   const providerCustomSortOrderIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -894,12 +848,10 @@ export function CodexModelProviderManager({
     void reloadCurrentAccount();
     void reloadLocalAccessState();
     void reloadCodexInstances();
-    void fetchSponsorState();
     void listCodexAccounts()
       .then((items) => setOauthAccounts(items.filter((item) => item.auth_mode !== "apikey")))
       .catch(() => setOauthAccounts([]));
   }, [
-    fetchSponsorState,
     reloadProviders,
     reloadCurrentAccount,
     reloadLocalAccessState,
@@ -3425,11 +3377,8 @@ export function CodexModelProviderManager({
                       <button
                         className="card-action-btn"
                         onClick={() => {
-                          const targetUrl = normalizeApiKeyFunOfficialUrl(
-                            provider.website ||
-                            provider.apiKeyUrl ||
-                            provider.baseUrl,
-                          );
+                          const targetUrl =
+                            provider.website || provider.apiKeyUrl || provider.baseUrl;
                           if (!targetUrl) return;
                           window.open(targetUrl, "_blank", "noopener,noreferrer");
                         }}
@@ -5333,9 +5282,8 @@ export function CodexModelProviderManager({
             variant: "secondary",
             icon: <ExternalLink size={14} />,
             onClick: () => {
-              const targetUrl = normalizeApiKeyFunOfficialUrl(
-                provider.website || provider.apiKeyUrl || provider.baseUrl,
-              );
+              const targetUrl =
+                provider.website || provider.apiKeyUrl || provider.baseUrl;
               if (!targetUrl) return;
               window.open(targetUrl, "_blank", "noopener,noreferrer");
             },

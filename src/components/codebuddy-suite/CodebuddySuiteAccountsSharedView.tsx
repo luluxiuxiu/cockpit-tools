@@ -20,7 +20,10 @@ import {
   isEveryIdSelected,
   usePagination,
 } from '../../hooks/usePagination';
-import { KNOWN_PLAN_FILTERS } from './CodebuddySuiteConfig';
+import {
+  KNOWN_PLAN_FILTERS,
+  resolveCodebuddyPlanFilterLabel,
+} from './CodebuddySuiteConfig';
 import { DosageNotifyUsageStatus } from '../platform/DosageNotifyUsageStatus';
 import { CodeBuddyQuotaCategoryList } from '../codebuddy/CodeBuddyQuotaCategoryList';
 import { MultiSelectFilterDropdown, type MultiSelectFilterOption } from '../MultiSelectFilterDropdown';
@@ -224,12 +227,15 @@ export function CodebuddySuiteAccountsSharedView<TAccount extends CodebuddySuite
     KNOWN_PLAN_FILTERS.forEach((plan) => {
       const count = tierSummary.dynamicCounts.get(plan) ?? 0;
       if (count === 0) return;
-      options.push({ value: plan, label: `${plan} (${count})` });
+      options.push({
+        value: plan,
+        label: `${resolveCodebuddyPlanFilterLabel(plan)} (${count})`,
+      });
     });
     tierSummary.extraKeys.forEach((key) => {
       options.push({
         value: key,
-        label: `${key} (${tierSummary.dynamicCounts.get(key) ?? 0})`,
+        label: `${resolveCodebuddyPlanFilterLabel(key)} (${tierSummary.dynamicCounts.get(key) ?? 0})`,
       });
     });
     options.push(buildValidAccountsFilterOption(t, tierSummary.validCount));
@@ -337,7 +343,7 @@ export function CodebuddySuiteAccountsSharedView<TAccount extends CodebuddySuite
             </div>
             <span className="account-email" title={maskAccountText(displayEmail)}>{maskAccountText(displayEmail)}</span>
             {isCurrent && <span className="current-tag">{t('accounts.status.current', '当前')}</span>}
-            <span className={`tier-badge ${tierBadgeClass}`}>{planBadge}</span>
+            <span className={`tier-badge ${tierBadgeClass}`}>{resolveCodebuddyPlanFilterLabel(planBadge)}</span>
           </div>
           {accountTags.length > 0 && (
             <div className="card-tags">
@@ -381,7 +387,7 @@ export function CodebuddySuiteAccountsSharedView<TAccount extends CodebuddySuite
             <span className="table-email" title={maskAccountText(displayEmail)}>{maskAccountText(displayEmail)}</span>
             {isCurrent && <span className="current-tag">{t('accounts.status.current', '当前')}</span>}
           </td>
-          <td><span className={`tier-badge ${tierBadgeClass}`}>{planBadge}</span></td>
+          <td><span className={`tier-badge ${tierBadgeClass}`}>{resolveCodebuddyPlanFilterLabel(planBadge)}</span></td>
           <td>
             <div className={platformConfig.tableUsageClassName}>
               {renderQuotaQuerySection(account, 'table')}

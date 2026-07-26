@@ -32,6 +32,9 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
   const ideInstanceStore = useInstanceStore();
   const instanceStore =
     runtimeTarget === 'antigravity' ? legacyInstanceStore : ideInstanceStore;
+  // CLI 无多开实例，回退到 IDE 实例管理类型避免类型错误
+  const instanceAppType =
+    runtimeTarget === 'antigravity_cli' ? 'antigravity_ide' : runtimeTarget;
   const { accounts, currentAccountsByTarget, fetchAccounts, fetchCurrentAccount } = useAccountStore();
   const currentAccount = currentAccountsByTarget[runtimeTarget] ?? null;
   const [displayGroups, setDisplayGroups] = useState<DisplayGroup[]>([]);
@@ -118,7 +121,7 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
           const presentation = buildAntigravityAccountPresentation(account, displayGroups, t);
           return `${presentation.displayName} ${presentation.planLabel} ${account.name ?? ''}`;
         }}
-        appType={runtimeTarget}
+        appType={instanceAppType}
       />
     </div>
   );

@@ -26,8 +26,10 @@ import {
   parseCycleRemain,
   isActiveResource,
   isExtraPackage,
+  isBonusPackage,
   isTrialOrFreeMonPackage,
   isProPackage,
+  resolvePlanTierFromPackageCode,
   extractResourceAccounts,
   getAccountQuotaUpdatedAtMs,
   aggregateCycleResources,
@@ -76,7 +78,8 @@ export function toOfficialQuotaResource(raw: Record<string, unknown>): OfficialQ
 
 /**
  * 获取套餐详情
- * 遵循官方 CodeBuddy web client 逻辑
+ * 遵循官方 CodeBuddy web client 逻辑（HAR 验证）：
+ * flagship > premium > standard > youth > free/trial
  */
 export function getPlanDetail(account: CodebuddySuiteAccountBase): CodebuddyPlanDetail {
   const profile = asRecord(account.profile_raw);
@@ -84,7 +87,14 @@ export function getPlanDetail(account: CodebuddySuiteAccountBase): CodebuddyPlan
 
   // 企业账号类型优先
   if (ENTERPRISE_ACCOUNT_TYPES.includes(accountType)) {
-    return { type: 'pro', isPro: true, isTrial: false, badge: 'ENTERPRISE', packageCode: null };
+    return {
+      type: 'pro',
+      isPro: true,
+      isTrial: false,
+      badge: 'ENTERPRISE',
+      packageCode: null,
+      tier: 'enterprise',
+    };
   }
 
   const all = extractResourceAccounts(account);
@@ -93,30 +103,60 @@ export function getPlanDetail(account: CodebuddySuiteAccountBase): CodebuddyPlan
     return s === RESOURCE_STATUS.valid || s === RESOURCE_STATUS.usedUp;
   });
 
-  const proPkg = active.find((a) => {
-    const c = typeof a.PackageCode === 'string' ? a.PackageCode : '';
-    return c === PACKAGE_CODE.proYear || c === PACKAGE_CODE.proMon;
-  });
+  // 按官方优先级选取最高付费档
+  const paidOrder = [
+    PACKAGE_CODE.flagshipMon,
+    PACKAGE_CODE.premiumMon,
+    PACKAGE_CODE.proYear,
+    PACKAGE_CODE.proMon,
+    PACKAGE_CODE.youthMon,
+  ] as const;
+
+  for (const code of paidOrder) {
+    const pkg = active.find((a) => typeof a.PackageCode === 'string' && a.PackageCode === code);
+    if (pkg) {
+      const resolved = resolvePlanTierFromPackageCode(code);
+      if (resolved) {
+        return {
+          type: 'pro',
+          isPro: resolved.isPro,
+          isTrial: false,
+          badge: resolved.badge,
+          packageCode: code,
+          tier: resolved.tier,
+        };
+      }
+    }
+  }
 
   const hasGift = active.some((a) => {
     const c = typeof a.PackageCode === 'string' ? a.PackageCode : '';
     return c === PACKAGE_CODE.gift;
   });
 
-  if (proPkg) {
-    const code = typeof proPkg.PackageCode === 'string' ? proPkg.PackageCode : null;
-    return { type: 'pro', isPro: true, isTrial: hasGift, badge: 'PRO', packageCode: code };
-  }
-
   if (hasGift) {
-    return { type: 'free', isPro: false, isTrial: true, badge: 'TRIAL', packageCode: PACKAGE_CODE.gift };
+    return {
+      type: 'free',
+      isPro: false,
+      isTrial: true,
+      badge: 'TRIAL',
+      packageCode: PACKAGE_CODE.gift,
+      tier: 'trial',
+    };
   }
 
   if (all.length === 0) {
     return planBadgeFallback(account);
   }
 
-  return { type: 'free', isPro: false, isTrial: false, badge: 'FREE', packageCode: null };
+  return {
+    type: 'free',
+    isPro: false,
+    isTrial: false,
+    badge: 'FREE',
+    packageCode: null,
+    tier: 'free',
+  };
 }
 
 /**
@@ -127,15 +167,32 @@ function planBadgeFallback(account: CodebuddySuiteAccountBase): CodebuddyPlanDet
   const plan = account.plan_type?.toLowerCase() || '';
   const source = payment || plan;
 
-  if (source.includes('enterprise')) return { type: 'pro', isPro: true, isTrial: false, badge: 'ENTERPRISE', packageCode: null };
-  if (source.includes('trial')) return { type: 'free', isPro: false, isTrial: true, badge: 'TRIAL', packageCode: null };
-  if (source.includes('pro')) return { type: 'pro', isPro: true, isTrial: false, badge: 'PRO', packageCode: null };
-  if (source.includes('free')) return { type: 'free', isPro: false, isTrial: false, badge: 'FREE', packageCode: null };
+  if (source.includes('enterprise') || source.includes('企业')) {
+    return { type: 'pro', isPro: true, isTrial: false, badge: 'ENTERPRISE', packageCode: null, tier: 'enterprise' };
+  }
+  if (source.includes('flagship') || source.includes('旗舰')) {
+    return { type: 'pro', isPro: true, isTrial: false, badge: 'FLAGSHIP', packageCode: null, tier: 'flagship' };
+  }
+  if (source.includes('premium') || source.includes('高级')) {
+    return { type: 'pro', isPro: true, isTrial: false, badge: 'PREMIUM', packageCode: null, tier: 'premium' };
+  }
+  if (source.includes('standard') || source.includes('标准') || source.includes('pro')) {
+    return { type: 'pro', isPro: true, isTrial: false, badge: 'STANDARD', packageCode: null, tier: 'standard' };
+  }
+  if (source.includes('youth') || source.includes('青春')) {
+    return { type: 'pro', isPro: true, isTrial: false, badge: 'YOUTH', packageCode: null, tier: 'youth' };
+  }
+  if (source.includes('trial') || source.includes('体验')) {
+    return { type: 'free', isPro: false, isTrial: true, badge: 'TRIAL', packageCode: null, tier: 'trial' };
+  }
+  if (source.includes('free') || source.includes('免费')) {
+    return { type: 'free', isPro: false, isTrial: false, badge: 'FREE', packageCode: null, tier: 'free' };
+  }
   if (source) {
     const raw = (account.payment_type || account.plan_type || 'UNKNOWN').toUpperCase();
-    return { type: 'free', isPro: false, isTrial: false, badge: raw, packageCode: null };
+    return { type: 'free', isPro: false, isTrial: false, badge: raw, packageCode: null, tier: 'unknown' };
   }
-  return { type: 'free', isPro: false, isTrial: false, badge: 'UNKNOWN', packageCode: null };
+  return { type: 'free', isPro: false, isTrial: false, badge: 'UNKNOWN', packageCode: null, tier: 'unknown' };
 }
 
 /**
@@ -152,14 +209,46 @@ export function getPlanBadgeClass(badge: string): string {
   switch (badge) {
     case 'FREE':
       return 'plan-badge plan-free';
-    case 'PRO':
-      return 'plan-badge plan-pro';
     case 'TRIAL':
       return 'plan-badge plan-trial';
+    case 'YOUTH':
+      return 'plan-badge plan-youth';
+    case 'STANDARD':
+    case 'PRO':
+      return 'plan-badge plan-standard';
+    case 'PREMIUM':
+      return 'plan-badge plan-premium';
+    case 'FLAGSHIP':
+      return 'plan-badge plan-flagship';
     case 'ENTERPRISE':
       return 'plan-badge plan-enterprise';
     default:
       return 'plan-badge plan-unknown';
+  }
+}
+
+/**
+ * 徽章显示文案（中文）
+ */
+export function getPlanBadgeLabel(badge: string): string {
+  switch (badge) {
+    case 'FREE':
+      return '体验版';
+    case 'TRIAL':
+      return '试用';
+    case 'YOUTH':
+      return '青春版';
+    case 'STANDARD':
+    case 'PRO':
+      return '标准版';
+    case 'PREMIUM':
+      return '高级版';
+    case 'FLAGSHIP':
+      return '旗舰版';
+    case 'ENTERPRISE':
+      return '企业版';
+    default:
+      return badge || '未知';
   }
 }
 
@@ -246,14 +335,12 @@ export function getOfficialQuotaModel(account: CodebuddySuiteAccountBase): Offic
     const code = typeof a.PackageCode === 'string' ? a.PackageCode : '';
     return code === PACKAGE_CODE.free;
   });
-  const activity = all.filter((a) => {
-    const code = typeof a.PackageCode === 'string' ? a.PackageCode : '';
-    return code === PACKAGE_CODE.activity;
-  });
+  const activity = all.filter((a) => isBonusPackage(a) || (typeof a.PackageCode === 'string' && a.PackageCode === PACKAGE_CODE.activity));
 
   const mergedTrialOrFreeMon = aggregateCycleResources(trialOrFreeMon);
   const mergedFree = aggregateCycleResources(free);
-  const ordered = [mergedTrialOrFreeMon, ...pro, ...activity, mergedFree].filter(
+  // 付费主档优先展示，其后赠送包/体验包
+  const ordered = [...pro, mergedTrialOrFreeMon, ...activity, mergedFree].filter(
     (item): item is Record<string, unknown> => item != null && !!item.PackageCode,
   );
   const resources = ordered.map(toOfficialQuotaResource);
@@ -269,12 +356,23 @@ export function getOfficialQuotaModel(account: CodebuddySuiteAccountBase): Offic
 function resolvePackageName(resource: OfficialQuotaResource): string {
   if (resource.packageCode === PACKAGE_CODE.extra) return '加量包';
   if (resource.packageCode === PACKAGE_CODE.activity) return '活动赠送包';
-  if (resource.packageCode === PACKAGE_CODE.free || resource.packageCode === PACKAGE_CODE.gift || resource.packageCode === PACKAGE_CODE.freeMon) {
+  if (resource.packageCode === PACKAGE_CODE.versionBonus) return '版本赠送包';
+  if (resource.packageCode === PACKAGE_CODE.compensation || resource.packageCode === PACKAGE_CODE.newUserBonus) {
+    return '权益赠送包';
+  }
+  if (
+    resource.packageCode === PACKAGE_CODE.free ||
+    resource.packageCode === PACKAGE_CODE.gift ||
+    resource.packageCode === PACKAGE_CODE.freeMon
+  ) {
     return '基础体验包';
   }
+  if (resource.packageCode === PACKAGE_CODE.flagshipMon) return '旗舰版订阅';
+  if (resource.packageCode === PACKAGE_CODE.premiumMon) return '高级版订阅';
   if (resource.packageCode === PACKAGE_CODE.proMon || resource.packageCode === PACKAGE_CODE.proYear) {
-    return '专业版订阅';
+    return '标准版订阅';
   }
+  if (resource.packageCode === PACKAGE_CODE.youthMon) return '青春版订阅';
   return resource.packageName || '基础包';
 }
 
@@ -337,9 +435,23 @@ export function getQuotaCategoryGroups(account: CodebuddySuiteAccountBase, t: (k
 
   for (const resource of model.resources) {
     const code = resource.packageCode;
-    if (code === PACKAGE_CODE.free || code === PACKAGE_CODE.gift || code === PACKAGE_CODE.freeMon || code === PACKAGE_CODE.proMon || code === PACKAGE_CODE.proYear) {
+    if (
+      code === PACKAGE_CODE.free ||
+      code === PACKAGE_CODE.gift ||
+      code === PACKAGE_CODE.freeMon ||
+      code === PACKAGE_CODE.proMon ||
+      code === PACKAGE_CODE.proYear ||
+      code === PACKAGE_CODE.youthMon ||
+      code === PACKAGE_CODE.premiumMon ||
+      code === PACKAGE_CODE.flagshipMon
+    ) {
       baseItems.push(resource);
-    } else if (code === PACKAGE_CODE.activity) {
+    } else if (
+      code === PACKAGE_CODE.activity ||
+      code === PACKAGE_CODE.versionBonus ||
+      code === PACKAGE_CODE.compensation ||
+      code === PACKAGE_CODE.newUserBonus
+    ) {
       activityItems.push(resource);
     } else {
       otherItems.push(resource);

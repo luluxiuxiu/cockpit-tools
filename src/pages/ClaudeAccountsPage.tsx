@@ -94,8 +94,6 @@ import {
   normalizeClaudeAuthMode,
 } from '../types/claude';
 import {
-  CLAUDE_APIKEY_FUN_BASE_URL,
-  CLAUDE_APIKEY_FUN_PROVIDER_ID,
   CLAUDE_API_PROVIDER_CUSTOM_ID,
   CLAUDE_API_PROVIDER_PRESETS,
   getDefaultClaudeApiProviderPresetId,
@@ -112,11 +110,6 @@ import {
   getDefaultClaudeDesktopGatewayProviderPresetId,
   inferClaudeDesktopGatewayApiKeyField,
 } from '../utils/claudeDesktopProviderPresets';
-import {
-  APIKEY_FUN_PREFILL_EVENT,
-  consumeApiKeyFunPrefill,
-  type ApiKeyFunPrefillPayload,
-} from '../utils/apiKeyFunPrefill';
 import { getPlatformLabel } from '../utils/platformMeta';
 import { ClaudeInstancesContent } from './ClaudeInstancesPage';
 import type { InstanceProfile } from '../types/instance';
@@ -685,17 +678,8 @@ function isClaudeProviderApiKeyAccount(account: ClaudeAccount): boolean {
   return normalizeClaudeAuthMode(account.auth_mode) === 'api_key' || isClaudeDesktopGatewayAccount(account);
 }
 
-function isClaudeApiKeyFunAccount(account: ClaudeAccount): boolean {
-  const providerId = account.api_provider_id?.trim().toLowerCase();
-  const sourceTag = account.api_provider_source_tag?.trim().toLowerCase();
-  const providerName = account.api_provider_name?.trim().toLowerCase();
-  const baseUrl = account.api_base_url?.trim().toLowerCase();
-  return (
-    providerId === CLAUDE_APIKEY_FUN_PROVIDER_ID ||
-    sourceTag === 'apikey_fun' ||
-    providerName === 'apikey.fun' ||
-    Boolean(baseUrl && /(^https?:\/\/)?([^/]+\.)?apikey\.fun(\/|$)/i.test(baseUrl))
-  );
+function isClaudeApiKeyFunAccount(_account: ClaudeAccount): boolean {
+  return false;
 }
 
 function buildClaudeQuotaSummaryItems(account: ClaudeAccount, t: TFunction): ClaudeQuotaSummaryItem[] {
@@ -1367,88 +1351,6 @@ export function ClaudeAccountsPage({ subPlatform = 'desktop' }: ClaudeAccountsPa
     setAddTab(tab);
   };
 
-  const applyApiKeyFunPrefill = useCallback(
-    (request: ApiKeyFunPrefillPayload) => {
-      const key = request.apiKey.trim();
-      if (!key) return;
-
-      if (request.target === 'claude_desktop') {
-        const models = (request.modelCatalog ?? []).map((model) => model.trim()).filter(Boolean);
-        const claudeModels = models.filter(isClaudeDesktopGatewayRouteModel);
-        const baseUrl = request.baseUrl?.trim() || CLAUDE_APIKEY_FUN_BASE_URL;
-        const normalizedBaseUrl = normalizeClaudeApiProviderBaseUrl(baseUrl) || baseUrl;
-        resetAddModalState('desktop');
-        setActiveSection('desktop');
-        setShowAddModal(true);
-        setAddTab('desktopGateway');
-        setApiProviderPresetId(CLAUDE_APIKEY_FUN_PROVIDER_ID);
-        setApiBaseUrlInput(baseUrl);
-        setApiProviderTemplateValues({});
-        setApiKeyModelCatalogOverride(null);
-        setApiKeyNameInput(request.apiKeyName?.trim() || request.providerName?.trim() || 'APIKEY.FUN');
-        setApiKeyInput(key);
-        setApiKeyInputVisible(false);
-        setDesktopGatewayAuthScheme('bearer');
-        setDesktopGatewayUpstreamModels(models);
-        if (claudeModels.length > 0) {
-          setDesktopGatewayConnectionMode('direct');
-          setDesktopGatewayModelsInput(claudeModels.join('\n'));
-          setDesktopGatewayModelMappings([]);
-          setDesktopGatewayMappingsExpanded(false);
-        } else {
-          setDesktopGatewayConnectionMode('local_mapping');
-          setDesktopGatewayModelsInput(DEFAULT_CLAUDE_DESKTOP_GATEWAY_MODELS.join('\n'));
-          setDesktopGatewayModelMappings(buildClaudeDesktopGatewayMappings(
-            DEFAULT_CLAUDE_DESKTOP_GATEWAY_MODELS,
-            models,
-          ));
-          setDesktopGatewayMappingsExpanded(false);
-        }
-        setDesktopGatewayModelsError(null);
-        setDesktopGatewayModelsMessage(t(
-          'apiKeyFun.prefill.claudeDesktopReady',
-          '已带入 APIKEY.FUN 配置，请确认后添加到 Claude。',
-        ));
-        desktopGatewayModelsFetchSignatureRef.current = normalizedBaseUrl
-          ? `${key}\n${normalizedBaseUrl}\nbearer`
-          : '';
-        setAddModalError(null);
-        return;
-      }
-
-      if (request.target === 'claude_cli') {
-        resetAddModalState('cli');
-        setActiveSection('cli');
-        setShowAddModal(true);
-        setAddTab('apikey');
-        setApiProviderPresetId(CLAUDE_APIKEY_FUN_PROVIDER_ID);
-        setApiBaseUrlInput(request.baseUrl?.trim() || CLAUDE_APIKEY_FUN_BASE_URL);
-        setApiProviderTemplateValues({});
-        setApiKeyModelCatalogOverride(request.modelCatalog ?? null);
-        setApiKeyNameInput(request.apiKeyName?.trim() || request.providerName?.trim() || 'APIKEY.FUN');
-        setApiKeyInput(key);
-        setApiKeyInputVisible(false);
-        setAddModalError(null);
-      }
-    },
-    [resetAddModalState, setAddModalError, t],
-  );
-
-  useEffect(() => {
-    const consumePrefill = () => {
-      const request =
-        consumeApiKeyFunPrefill('claude_desktop') ||
-        consumeApiKeyFunPrefill('claude_cli');
-      if (request) {
-        applyApiKeyFunPrefill(request);
-      }
-    };
-    consumePrefill();
-    window.addEventListener(APIKEY_FUN_PREFILL_EVENT, consumePrefill);
-    return () => {
-      window.removeEventListener(APIKEY_FUN_PREFILL_EVENT, consumePrefill);
-    };
-  }, [applyApiKeyFunPrefill]);
 
   const importJsonContent = async (content: string) => {
     const trimmed = content.trim();

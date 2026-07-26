@@ -128,6 +128,7 @@ function buildEmptyCurrentAccountsByTarget(): CurrentAccountsByTarget {
     return {
         antigravity: null,
         antigravity_ide: null,
+        antigravity_cli: null,
     };
 }
 

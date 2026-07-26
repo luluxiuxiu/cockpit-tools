@@ -6,7 +6,10 @@
 
 import { useMemo, useCallback } from 'react';
 import type { CodebuddySuiteAccountBase } from '../types/codebuddy-suite';
-import { KNOWN_PLAN_FILTERS } from '../components/codebuddy-suite/CodebuddySuiteConfig';
+import {
+  KNOWN_PLAN_FILTERS,
+  resolveCodebuddyTierBadgeClass,
+} from '../components/codebuddy-suite/CodebuddySuiteConfig';
 import { compareCurrentAccountFirst } from '../utils/currentAccountSort';
 import { splitValidityFilterValues } from '../utils/accountValidityFilter';
 
@@ -84,18 +87,7 @@ export function useCodebuddySuitePage<TAccount extends CodebuddySuiteAccountBase
   );
 
   const resolveTierBadgeClass = useCallback((plan: string) => {
-    switch (plan.toUpperCase()) {
-      case 'FREE':
-        return 'free';
-      case 'TRIAL':
-        return 'trial';
-      case 'PRO':
-        return 'pro';
-      case 'ENTERPRISE':
-        return 'enterprise';
-      default:
-        return 'unknown';
-    }
+    return resolveCodebuddyTierBadgeClass(plan);
   }, []);
 
   const tierSummary = useMemo(() => {

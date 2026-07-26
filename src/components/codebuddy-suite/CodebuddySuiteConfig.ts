@@ -81,7 +81,62 @@ export const WORKBUDDY_CONFIG: CodebuddySuitePlatformConfig = {
 };
 
 /**
- * 已知计划筛选器
+ * 已知计划筛选器（对齐官方 standard/premium/flagship）
  */
-export const KNOWN_PLAN_FILTERS = ['FREE', 'TRIAL', 'PRO', 'ENTERPRISE'] as const;
+export const KNOWN_PLAN_FILTERS = [
+  'FREE',
+  'TRIAL',
+  'YOUTH',
+  'STANDARD',
+  'PREMIUM',
+  'FLAGSHIP',
+  'PRO',
+  'ENTERPRISE',
+] as const;
 export type KnownPlanFilter = typeof KNOWN_PLAN_FILTERS[number];
+
+/** 套餐筛选/徽章中文展示 */
+export function resolveCodebuddyPlanFilterLabel(plan: string): string {
+  switch ((plan || '').trim().toUpperCase()) {
+    case 'FLAGSHIP':
+      return '旗舰版';
+    case 'PREMIUM':
+      return '高级版';
+    case 'STANDARD':
+    case 'PRO':
+      return '标准版';
+    case 'YOUTH':
+      return '青春版';
+    case 'TRIAL':
+      return '试用';
+    case 'FREE':
+      return '体验版';
+    case 'ENTERPRISE':
+      return '企业版';
+    default:
+      return plan || '未知';
+  }
+}
+
+/** 套餐徽章 CSS class（tier-badge 后缀） */
+export function resolveCodebuddyTierBadgeClass(plan: string): string {
+  switch ((plan || '').trim().toUpperCase()) {
+    case 'FREE':
+      return 'free';
+    case 'TRIAL':
+      return 'trial';
+    case 'YOUTH':
+      return 'youth';
+    case 'STANDARD':
+    case 'PRO':
+      return 'standard';
+    case 'PREMIUM':
+      return 'premium';
+    case 'FLAGSHIP':
+      return 'flagship';
+    case 'ENTERPRISE':
+      return 'enterprise';
+    default:
+      return 'unknown';
+  }
+}

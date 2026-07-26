@@ -1,10 +1,3 @@
-import {
-  APIKEY_FUN_DEFAULT_MODEL_CATALOG,
-  APIKEY_FUN_GLOBAL_ENDPOINT,
-  APIKEY_FUN_REGISTER_URL,
-  APIKEY_FUN_SOURCE_TAG,
-} from './apikeyFunLinks';
-
 export type ClaudeApiKeyField = 'ANTHROPIC_AUTH_TOKEN' | 'ANTHROPIC_API_KEY';
 
 export interface ClaudeApiProviderTemplateValue {
@@ -30,8 +23,8 @@ export interface ClaudeApiProviderPreset {
 }
 
 export const CLAUDE_API_PROVIDER_CUSTOM_ID = 'custom';
-export const CLAUDE_APIKEY_FUN_PROVIDER_ID = 'apikey_fun';
-export const CLAUDE_APIKEY_FUN_BASE_URL = APIKEY_FUN_GLOBAL_ENDPOINT;
+export const CLAUDE_APIKEY_FUN_PROVIDER_ID = 'anthropic_official';
+export const CLAUDE_APIKEY_FUN_BASE_URL = '';
 
 const CLAUDE_MODEL_ENV_KEYS = [
   'ANTHROPIC_MODEL',
@@ -548,20 +541,6 @@ const CC_SWITCH_DIRECT_CLAUDE_PROVIDER_PRESETS: readonly ClaudeApiProviderPreset
 ];
 
 export const CLAUDE_API_PROVIDER_PRESETS: readonly ClaudeApiProviderPreset[] = [
-  {
-    id: CLAUDE_APIKEY_FUN_PROVIDER_ID,
-    name: 'APIKEY.FUN',
-    baseUrls: [CLAUDE_APIKEY_FUN_BASE_URL, 'https://slb.apikey.fun'],
-    apiKeyField: 'ANTHROPIC_AUTH_TOKEN',
-    website: 'https://apikey.fun',
-    apiKeyUrl: APIKEY_FUN_REGISTER_URL,
-    isPartner: true,
-    sourceTag: APIKEY_FUN_SOURCE_TAG,
-    modelCatalog: [...APIKEY_FUN_DEFAULT_MODEL_CATALOG],
-    extraEnv: {
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    },
-  },
   {
     id: 'anthropic_official',
     name: 'Anthropic Official',

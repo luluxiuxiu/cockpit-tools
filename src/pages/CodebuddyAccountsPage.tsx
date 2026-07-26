@@ -48,7 +48,16 @@ import {
 
 const CB_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.codebuddy.flow_notice_collapsed';
 const CB_CURRENT_ACCOUNT_ID_KEY = 'agtools.codebuddy.current_account_id';
-const CB_KNOWN_PLAN_FILTERS = ['FREE', 'TRIAL', 'PRO', 'ENTERPRISE'] as const;
+const CB_KNOWN_PLAN_FILTERS = [
+  'FREE',
+  'TRIAL',
+  'YOUTH',
+  'STANDARD',
+  'PREMIUM',
+  'FLAGSHIP',
+  'PRO',
+  'ENTERPRISE',
+] as const;
 const CODEBUDDY_FILTER_PERSISTENCE_SCOPE = normalizeAccountsOverviewScope('CodeBuddy');
 const FILTER_TYPES_FIELD = 'filter_types';
 const QUOTA_NUMBER_FORMATTER = new Intl.NumberFormat('en-US', {
@@ -188,14 +197,43 @@ export function CodebuddyAccountsPage() {
         return 'free';
       case 'TRIAL':
         return 'trial';
+      case 'YOUTH':
+        return 'youth';
+      case 'STANDARD':
       case 'PRO':
-        return 'pro';
+        return 'standard';
+      case 'PREMIUM':
+        return 'premium';
+      case 'FLAGSHIP':
+        return 'flagship';
       case 'ENTERPRISE':
         return 'enterprise';
       default:
         return 'unknown';
     }
   }, []);
+
+  const resolvePlanDisplayLabel = useCallback((plan: string) => {
+    switch (plan.toUpperCase()) {
+      case 'FLAGSHIP':
+        return t('codebuddy.plan.flagship', '旗舰版');
+      case 'PREMIUM':
+        return t('codebuddy.plan.premium', '高级版');
+      case 'STANDARD':
+      case 'PRO':
+        return t('codebuddy.plan.standard', '标准版');
+      case 'YOUTH':
+        return t('codebuddy.plan.youth', '青春版');
+      case 'TRIAL':
+        return t('codebuddy.plan.trial', '试用');
+      case 'FREE':
+        return t('codebuddy.plan.free', '体验版');
+      case 'ENTERPRISE':
+        return t('codebuddy.plan.enterprise', '企业版');
+      default:
+        return plan;
+    }
+  }, [t]);
 
   const isAbnormalAccount = useCallback(
     (account: CodebuddyAccount) => !getCodebuddyUsage(account).isNormal,
@@ -223,17 +261,17 @@ export function CodebuddyAccountsPage() {
     CB_KNOWN_PLAN_FILTERS.forEach((plan) => {
       const count = tierSummary.dynamicCounts.get(plan) ?? 0;
       if (count === 0) return;
-      options.push({ value: plan, label: `${plan} (${count})` });
+      options.push({ value: plan, label: `${resolvePlanDisplayLabel(plan)} (${count})` });
     });
     tierSummary.extraKeys.forEach((key) => {
       options.push({
         value: key,
-        label: `${key} (${tierSummary.dynamicCounts.get(key) ?? 0})`,
+        label: `${resolvePlanDisplayLabel(key)} (${tierSummary.dynamicCounts.get(key) ?? 0})`,
       });
     });
     options.push(buildValidAccountsFilterOption(t, tierSummary.validCount));
     return options;
-  }, [t, tierSummary.dynamicCounts, tierSummary.extraKeys, tierSummary.validCount]);
+  }, [t, tierSummary.dynamicCounts, tierSummary.extraKeys, tierSummary.validCount, resolvePlanDisplayLabel]);
 
   const filteredAccounts = useMemo(() => {
     let result = [...accounts];
@@ -362,6 +400,15 @@ export function CodebuddyAccountsPage() {
     if (resource.packageCode === CB_PACKAGE_CODE.activity) {
       return t('codebuddy.quotaQuery.packageTitle.activity', '活动赠送包');
     }
+    if (resource.packageCode === CB_PACKAGE_CODE.versionBonus) {
+      return t('codebuddy.quotaQuery.packageTitle.versionBonus', '版本赠送包');
+    }
+    if (
+      resource.packageCode === CB_PACKAGE_CODE.compensation ||
+      resource.packageCode === CB_PACKAGE_CODE.newUserBonus
+    ) {
+      return t('codebuddy.quotaQuery.packageTitle.benefit', '权益赠送包');
+    }
     if (
       resource.packageCode === CB_PACKAGE_CODE.free ||
       resource.packageCode === CB_PACKAGE_CODE.gift ||
@@ -369,11 +416,20 @@ export function CodebuddyAccountsPage() {
     ) {
       return t('codebuddy.quotaQuery.packageTitle.base', '基础体验包');
     }
+    if (resource.packageCode === CB_PACKAGE_CODE.flagshipMon) {
+      return t('codebuddy.quotaQuery.packageTitle.flagship', '旗舰版订阅');
+    }
+    if (resource.packageCode === CB_PACKAGE_CODE.premiumMon) {
+      return t('codebuddy.quotaQuery.packageTitle.premium', '高级版订阅');
+    }
     if (
       resource.packageCode === CB_PACKAGE_CODE.proMon ||
       resource.packageCode === CB_PACKAGE_CODE.proYear
     ) {
-      return t('codebuddy.quotaQuery.packageTitle.pro', '专业版订阅');
+      return t('codebuddy.quotaQuery.packageTitle.standard', '标准版订阅');
+    }
+    if (resource.packageCode === CB_PACKAGE_CODE.youthMon) {
+      return t('codebuddy.quotaQuery.packageTitle.youth', '青春版订阅');
     }
     return resource.packageName || t('codebuddy.quotaQuery.packageUnknown', '套餐信息未知');
   }, [t]);
@@ -494,7 +550,7 @@ export function CodebuddyAccountsPage() {
             </div>
             <span className="account-email" title={maskAccountText(displayEmail)}>{maskAccountText(displayEmail)}</span>
             {isCurrent && <span className="current-tag">{t('accounts.status.current', '当前')}</span>}
-            <span className={`tier-badge ${tierBadgeClass}`}>{planBadge}</span>
+            <span className={`tier-badge ${tierBadgeClass}`}>{resolvePlanDisplayLabel(planBadge)}</span>
           </div>
           {accountTags.length > 0 && (
             <div className="card-tags">
@@ -538,7 +594,7 @@ export function CodebuddyAccountsPage() {
             <span className="table-email" title={maskAccountText(displayEmail)}>{maskAccountText(displayEmail)}</span>
             {isCurrent && <span className="current-tag">{t('accounts.status.current', '当前')}</span>}
           </td>
-          <td><span className={`tier-badge ${tierBadgeClass}`}>{planBadge}</span></td>
+          <td><span className={`tier-badge ${tierBadgeClass}`}>{resolvePlanDisplayLabel(planBadge)}</span></td>
           <td>
             <div className="codebuddy-table-usage">
               {renderQuotaQuerySection(account, 'table')}

@@ -3,6 +3,7 @@ import { Page } from './navigation';
 export type PlatformId =
   | 'antigravity'
   | 'antigravity_ide'
+  | 'antigravity_cli'
   | 'codex'
   | 'claude_manager'
   | 'zed'
@@ -25,6 +26,7 @@ export const ALL_PLATFORM_IDS: PlatformId[] = [
   'codex',
   'antigravity',
   'antigravity_ide',
+  'antigravity_cli',
   'zed',
   'github-copilot',
   'windsurf',
@@ -54,6 +56,7 @@ export function isMenuVisiblePlatform(platformId: PlatformId): boolean {
 export const PLATFORM_PAGE_MAP: Record<PlatformId, Page> = {
   antigravity: 'overview',
   antigravity_ide: 'overview',
+  antigravity_cli: 'overview',
   codex: 'codex',
   claude_manager: 'claude',
   zed: 'zed',

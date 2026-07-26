@@ -22,7 +22,11 @@ export async function getAntigravityInstalledVersionInfo(
 
 function getAlternateAntigravityRuntimeTarget(
   target: AntigravityRuntimeTarget,
-): AntigravityRuntimeTarget {
+): AntigravityRuntimeTarget | null {
+  // CLI 无安装包版本探测，不自动改写用户选择
+  if (target === 'antigravity_cli') {
+    return null;
+  }
   return target === 'antigravity_ide' ? 'antigravity' : 'antigravity_ide';
 }
 
@@ -30,6 +34,10 @@ async function detectTargetVersion(
   target: AntigravityRuntimeTarget,
   scanMode: AntigravityInstalledVersionScanMode,
 ): Promise<boolean> {
+  if (target === 'antigravity_cli') {
+    // CLI 使用系统凭据，不依赖桌面安装探测
+    return true;
+  }
   try {
     const info = await getAntigravityInstalledVersionInfo(target, scanMode);
     return !!info?.version;
@@ -45,7 +53,14 @@ async function detectTargetVersion(
 export async function resolvePreferredAntigravityRuntimeTarget(
   currentTarget: AntigravityRuntimeTarget,
 ): Promise<AntigravityRuntimeTarget> {
+  if (currentTarget === 'antigravity_cli') {
+    return currentTarget;
+  }
+
   const alternateTarget = getAlternateAntigravityRuntimeTarget(currentTarget);
+  if (!alternateTarget) {
+    return currentTarget;
+  }
 
   const [currentQuickAvailable, alternateQuickAvailable] = await Promise.all([
     detectTargetVersion(currentTarget, 'quick'),

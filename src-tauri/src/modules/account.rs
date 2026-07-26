@@ -2098,6 +2098,20 @@ pub async fn switch_account_local_no_restart(account_id: &str) -> Result<Account
     let default_dir = modules::instance::get_default_user_data_dir()?;
     modules::instance::inject_account_to_profile(&default_dir, account_id)?;
 
+    // 同步写入系统凭据，供 Antigravity CLI（agy）使用（与 agy-account-switcher 相同目标 gemini:antigravity）
+    if let Err(e) = modules::antigravity_credential::write_antigravity_system_credential(&account)
+    {
+        modules::logger::log_warn(&format!(
+            "[Switch][NoRestart] 写入 AGY CLI 系统凭据失败（桌面切号仍成功）: {}",
+            e
+        ));
+    } else {
+        modules::logger::log_info(&format!(
+            "[Switch][NoRestart] 已同步 AGY CLI 系统凭据: {}",
+            account.email
+        ));
+    }
+
     modules::logger::log_info(&format!(
         "[Switch][NoRestart] 本地切号完成: {}",
         account.email

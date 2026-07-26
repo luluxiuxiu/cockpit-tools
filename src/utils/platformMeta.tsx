@@ -4,6 +4,7 @@ import { TFunction } from 'i18next';
 import { PlatformId } from '../types/platform';
 import { AntigravityIcon } from '../components/icons/AntigravityIcon';
 import { AntigravityIdeIcon } from '../components/icons/AntigravityIdeIcon';
+import { AntigravityCliIcon } from '../components/icons/AntigravityCliIcon';
 import { CodexIcon } from '../components/icons/CodexIcon';
 import { ClaudeIcon } from '../components/icons/ClaudeIcon';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
@@ -22,6 +23,8 @@ export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string 
       return 'Antigravity';
     case 'antigravity_ide':
       return 'Antigravity IDE';
+    case 'antigravity_cli':
+      return 'Antigravity CLI';
     case 'codex':
       return 'Codex';
     case 'claude_manager':
@@ -65,6 +68,8 @@ export function renderPlatformIcon(platformId: PlatformId, size = 20): ReactNode
       return <AntigravityIcon style={{ width: size, height: size }} />;
     case 'antigravity_ide':
       return <AntigravityIdeIcon style={{ width: size, height: size }} />;
+    case 'antigravity_cli':
+      return <AntigravityCliIcon style={{ width: size, height: size }} />;
     case 'codex':
       return <CodexIcon size={size} />;
     case 'claude_manager':

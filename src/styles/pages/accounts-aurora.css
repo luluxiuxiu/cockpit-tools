@@ -659,26 +659,30 @@
   white-space: nowrap;
 }
 
-.accounts-page .tier-badge.pro {
+.accounts-page .tier-badge.pro,
+.accounts-page .tier-badge.standard {
   background: var(--plan-pro-bg);
   color: var(--plan-pro-color);
   border-color: var(--plan-pro-border);
 }
 
 .accounts-page .tier-badge.pro-plus,
-.accounts-page .tier-badge.ultra {
+.accounts-page .tier-badge.ultra,
+.accounts-page .tier-badge.flagship {
   background: var(--plan-ultra-bg);
   color: var(--plan-ultra-color);
   border-color: var(--plan-ultra-border);
 }
 
-.accounts-page .tier-badge.individual {
+.accounts-page .tier-badge.individual,
+.accounts-page .tier-badge.youth {
   background: var(--plan-individual-bg);
   color: var(--plan-individual-color);
   border-color: var(--plan-individual-border);
 }
 
-.accounts-page .tier-badge.business {
+.accounts-page .tier-badge.business,
+.accounts-page .tier-badge.premium {
   background: var(--plan-business-bg);
   color: var(--plan-business-color);
   border-color: var(--plan-business-border);

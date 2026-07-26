@@ -278,9 +278,18 @@ function formatMicrosUsd(value: number | null | undefined): string {
 function resolveSimplePlanClass(planLabel: string | null | undefined): string {
   const normalized = (planLabel || "").trim().toLowerCase();
   if (!normalized) return "unknown";
-  if (normalized.includes("enterprise") || normalized.includes("team"))
+  if (normalized.includes("enterprise") || normalized.includes("企业") || normalized.includes("team"))
     return "enterprise";
-  if (normalized.includes("trial")) return "trial";
+  if (normalized.includes("flagship") || normalized.includes("旗舰"))
+    return "flagship";
+  if (normalized.includes("premium") || normalized.includes("高级"))
+    return "premium";
+  if (normalized.includes("standard") || normalized.includes("标准"))
+    return "standard";
+  if (normalized.includes("youth") || normalized.includes("青春"))
+    return "youth";
+  if (normalized.includes("trial") || normalized.includes("试用") || normalized.includes("体验"))
+    return "trial";
   if (
     normalized.includes("pro") ||
     normalized.includes("plus") ||
@@ -289,8 +298,33 @@ function resolveSimplePlanClass(planLabel: string | null | undefined): string {
   ) {
     return "pro";
   }
-  if (normalized.includes("free")) return "free";
+  if (normalized.includes("free") || normalized.includes("免费")) return "free";
   return "unknown";
+}
+
+/** CodeBuddy 套餐徽章 → 界面展示文案（标准版/高级版/旗舰版） */
+function resolveCodebuddyPlanDisplayLabel(badge: string, t: Translate): string {
+  switch ((badge || "").trim().toUpperCase()) {
+    case "FLAGSHIP":
+      return t("codebuddy.plan.flagship", "旗舰版");
+    case "PREMIUM":
+      return t("codebuddy.plan.premium", "高级版");
+    case "STANDARD":
+    case "PRO":
+      return t("codebuddy.plan.standard", "标准版");
+    case "YOUTH":
+      return t("codebuddy.plan.youth", "青春版");
+    case "TRIAL":
+      return t("codebuddy.plan.trial", "试用");
+    case "FREE":
+      return t("codebuddy.plan.free", "体验版");
+    case "ENTERPRISE":
+      return t("codebuddy.plan.enterprise", "企业版");
+    case "UNKNOWN":
+      return t("codebuddy.plan.unknown", "未知");
+    default:
+      return badge || t("codebuddy.plan.unknown", "未知");
+  }
 }
 
 function getRemainingQuotaClass(remainPercent: number | null): string {
@@ -330,6 +364,15 @@ function resolveCodebuddyResourceLabel(
   if (resource.packageCode === CB_PACKAGE_CODE.activity) {
     return t("codebuddy.quotaQuery.packageTitle.activity", "活动赠送包");
   }
+  if (resource.packageCode === CB_PACKAGE_CODE.versionBonus) {
+    return t("codebuddy.quotaQuery.packageTitle.versionBonus", "版本赠送包");
+  }
+  if (
+    resource.packageCode === CB_PACKAGE_CODE.compensation ||
+    resource.packageCode === CB_PACKAGE_CODE.newUserBonus
+  ) {
+    return t("codebuddy.quotaQuery.packageTitle.benefit", "权益赠送包");
+  }
   if (
     resource.packageCode === CB_PACKAGE_CODE.free ||
     resource.packageCode === CB_PACKAGE_CODE.gift ||
@@ -337,11 +380,20 @@ function resolveCodebuddyResourceLabel(
   ) {
     return t("codebuddy.quotaQuery.packageTitle.base", "基础体验包");
   }
+  if (resource.packageCode === CB_PACKAGE_CODE.flagshipMon) {
+    return t("codebuddy.quotaQuery.packageTitle.flagship", "旗舰版订阅");
+  }
+  if (resource.packageCode === CB_PACKAGE_CODE.premiumMon) {
+    return t("codebuddy.quotaQuery.packageTitle.premium", "高级版订阅");
+  }
   if (
     resource.packageCode === CB_PACKAGE_CODE.proMon ||
     resource.packageCode === CB_PACKAGE_CODE.proYear
   ) {
-    return t("codebuddy.quotaQuery.packageTitle.pro", "专业版订阅");
+    return t("codebuddy.quotaQuery.packageTitle.standard", "标准版订阅");
+  }
+  if (resource.packageCode === CB_PACKAGE_CODE.youthMon) {
+    return t("codebuddy.quotaQuery.packageTitle.youth", "青春版订阅");
   }
   return (
     resource.packageName ||
@@ -359,6 +411,15 @@ function resolveWorkbuddyResourceLabel(
   if (resource.packageCode === WORKBUDDY_PACKAGE_CODE.activity) {
     return t("workbuddy.quotaQuery.packageTitle.activity", "活动赠送包");
   }
+  if (resource.packageCode === WORKBUDDY_PACKAGE_CODE.versionBonus) {
+    return t("workbuddy.quotaQuery.packageTitle.versionBonus", "版本赠送包");
+  }
+  if (
+    resource.packageCode === WORKBUDDY_PACKAGE_CODE.compensation ||
+    resource.packageCode === WORKBUDDY_PACKAGE_CODE.newUserBonus
+  ) {
+    return t("workbuddy.quotaQuery.packageTitle.benefit", "权益赠送包");
+  }
   if (
     resource.packageCode === WORKBUDDY_PACKAGE_CODE.free ||
     resource.packageCode === WORKBUDDY_PACKAGE_CODE.gift ||
@@ -366,11 +427,20 @@ function resolveWorkbuddyResourceLabel(
   ) {
     return t("workbuddy.quotaQuery.packageTitle.base", "基础体验包");
   }
+  if (resource.packageCode === WORKBUDDY_PACKAGE_CODE.flagshipMon) {
+    return t("workbuddy.quotaQuery.packageTitle.flagship", "旗舰版订阅");
+  }
+  if (resource.packageCode === WORKBUDDY_PACKAGE_CODE.premiumMon) {
+    return t("workbuddy.quotaQuery.packageTitle.premium", "高级版订阅");
+  }
   if (
     resource.packageCode === WORKBUDDY_PACKAGE_CODE.proMon ||
     resource.packageCode === WORKBUDDY_PACKAGE_CODE.proYear
   ) {
-    return resource.packageName || "PRO";
+    return resource.packageName || t("workbuddy.quotaQuery.packageTitle.standard", "标准版");
+  }
+  if (resource.packageCode === WORKBUDDY_PACKAGE_CODE.youthMon) {
+    return t("workbuddy.quotaQuery.packageTitle.youth", "青春版订阅");
   }
   return (
     resource.packageName ||
@@ -1078,7 +1148,8 @@ export function buildCodebuddyAccountPresentation(
   account: CodebuddyAccount,
   t: Translate,
 ): UnifiedAccountPresentation {
-  const planLabel = getCodebuddyPlanBadge(account);
+  const planBadge = getCodebuddyPlanBadge(account);
+  const planLabel = resolveCodebuddyPlanDisplayLabel(planBadge, t);
   const usage = getCodebuddyUsage(account);
   const model = getCodebuddyOfficialQuotaModel(account);
   const quotaItems: UnifiedQuotaMetric[] = [];
@@ -1122,7 +1193,7 @@ export function buildCodebuddyAccountPresentation(
     id: account.id,
     displayName: getCodebuddyAccountDisplayEmail(account),
     planLabel,
-    planClass: resolveSimplePlanClass(planLabel),
+    planClass: resolveSimplePlanClass(planBadge),
     quotaItems,
     ...buildUsageStatusSubline(
       usage.isNormal,
@@ -1137,7 +1208,8 @@ export function buildWorkbuddyAccountPresentation(
   account: WorkbuddyAccount,
   t: Translate,
 ): UnifiedAccountPresentation {
-  const planLabel = getWorkbuddyPlanBadge(account);
+  const planBadge = getWorkbuddyPlanBadge(account);
+  const planLabel = resolveCodebuddyPlanDisplayLabel(planBadge, t);
   const usage = getWorkbuddyUsage(account);
   const model = getWorkbuddyOfficialQuotaModel(account);
   const quotaItems: UnifiedQuotaMetric[] = [];
@@ -1181,7 +1253,7 @@ export function buildWorkbuddyAccountPresentation(
     id: account.id,
     displayName: getWorkbuddyAccountDisplayEmail(account),
     planLabel,
-    planClass: resolveSimplePlanClass(planLabel),
+    planClass: resolveSimplePlanClass(planBadge),
     quotaItems,
     ...buildUsageStatusSubline(
       usage.isNormal,

@@ -7,6 +7,7 @@ const PLATFORM_LAYOUT_STORAGE_KEY = 'agtools.platform_layout.v1';
 const LEGACY_TRAY_CORE_IDS: PlatformId[] = ['antigravity', 'codex', 'github-copilot', 'windsurf'];
 const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'antigravity_ide',
+  'antigravity_cli',
   'claude_manager',
   'zed',
   'kiro',
@@ -28,10 +29,7 @@ const TRAE_SUITE_PLATFORM_IDS: PlatformId[] = ['trae', 'trae_solo', 'trae_cn', '
 
 const PLATFORM_ENTRY_PREFIX = 'platform:';
 const GROUP_ENTRY_PREFIX = 'group:';
-export const API_RELAY_LAYOUT_ENTRY_ID = 'feature:api-relay' as const;
-
 export type PlatformLayoutEntryId = `platform:${PlatformId}` | `group:${string}`;
-export type ApiRelayLayoutEntryId = typeof API_RELAY_LAYOUT_ENTRY_ID;
 export type PlatformGroupIconKind = 'platform' | 'custom';
 
 export interface PlatformLayoutGroupChildConfig {
@@ -65,9 +63,6 @@ type PersistedPlatformLayout = {
   sidebarEntryIds?: PlatformLayoutEntryId[];
   antigravityGroupFirstMigrated?: boolean;
   traeSuiteDefaultGroupRestored?: boolean;
-  apiRelaySidebarVisible?: boolean;
-  apiRelayDashboardVisible?: boolean;
-  apiRelayEntryOrder?: number;
 };
 
 interface PlatformLayoutState {
@@ -83,9 +78,6 @@ interface PlatformLayoutState {
   sidebarEntryIds: PlatformLayoutEntryId[];
   antigravityGroupFirstMigrated: boolean;
   traeSuiteDefaultGroupRestored: boolean;
-  apiRelaySidebarVisible: boolean;
-  apiRelayDashboardVisible: boolean;
-  apiRelayEntryOrder: number;
 
   movePlatform: (fromIndex: number, toIndex: number) => void;
   toggleHiddenPlatform: (id: PlatformId) => void;
@@ -94,16 +86,13 @@ interface PlatformLayoutState {
   setSidebarPlatform: (id: PlatformId, enabled: boolean) => void;
 
   moveEntry: (fromIndex: number, toIndex: number) => void;
-  setLayoutEntryOrder: (entryIds: PlatformLayoutEntryId[], apiRelayEntryOrder: number) => void;
+  setLayoutEntryOrder: (entryIds: PlatformLayoutEntryId[]) => void;
   reorderGroupPlatforms: (groupId: string, fromIndex: number, toIndex: number) => void;
   toggleHiddenEntry: (id: PlatformLayoutEntryId) => void;
   setHiddenEntry: (id: PlatformLayoutEntryId, hidden: boolean) => void;
   toggleSidebarEntry: (id: PlatformLayoutEntryId) => void;
   setSidebarEntry: (id: PlatformLayoutEntryId, enabled: boolean) => void;
   syncSidebarEntriesFromDashboard: () => void;
-  setApiRelaySidebarVisible: (visible: boolean) => void;
-  setApiRelayDashboardVisible: (visible: boolean) => void;
-  setApiRelayEntryOrder: (order: number) => void;
 
   upsertPlatformGroup: (group: PlatformLayoutGroup) => void;
   removePlatformGroup: (groupId: string) => void;
@@ -126,9 +115,6 @@ interface NormalizedLayoutStateData {
   sidebarEntryIds: PlatformLayoutEntryId[];
   antigravityGroupFirstMigrated: boolean;
   traeSuiteDefaultGroupRestored: boolean;
-  apiRelaySidebarVisible: boolean;
-  apiRelayDashboardVisible: boolean;
-  apiRelayEntryOrder: number;
 }
 
 let trayLayoutSyncTimer: number | null = null;
@@ -285,13 +271,14 @@ function defaultPlatformGroups(): PlatformLayoutGroup[] {
     {
       id: DEFAULT_ANTIGRAVITY_GROUP_ID,
       name: 'Antigravity',
-      platformIds: ['antigravity', 'antigravity_ide'],
+      platformIds: ['antigravity', 'antigravity_ide', 'antigravity_cli'],
       defaultPlatformId: 'antigravity_ide',
       iconKind: 'platform',
       iconPlatformId: 'antigravity_ide',
       childConfigs: [
         { platformId: 'antigravity', name: 'Antigravity' },
         { platformId: 'antigravity_ide', name: 'Antigravity IDE' },
+        { platformId: 'antigravity_cli', name: 'Antigravity CLI' },
       ],
     },
     {
@@ -382,14 +369,6 @@ function normalizeTraySortMode(mode: unknown): 'auto' | 'manual' {
   return mode === 'manual' ? 'manual' : 'auto';
 }
 
-function normalizeApiRelayEntryOrder(order: unknown, entryCount: number): number {
-  const raw = typeof order === 'number' ? order : Number(order);
-  if (!Number.isFinite(raw)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(entryCount, Math.trunc(raw)));
-}
-
 function normalizeGroupId(raw: unknown, index: number): string {
   if (typeof raw === 'string') {
     const cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
@@ -450,10 +429,13 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
 }
 
 function normalizeAntigravitySuiteGroupName(name: string, platformIds: PlatformId[]): string {
-  if (
+  const isAntigravitySuite =
     platformIds.includes('antigravity')
-    && platformIds.includes('antigravity_ide')
-    && (name === 'Antigravity IDE' || name === 'Antigravity')
+    || platformIds.includes('antigravity_ide')
+    || platformIds.includes('antigravity_cli');
+  if (
+    isAntigravitySuite
+    && (name === 'Antigravity IDE' || name === 'Antigravity' || name === 'Antigravity CLI')
   ) {
     return 'Antigravity';
   }
@@ -643,6 +625,25 @@ function normalizePlatformGroups(
     }
   }
 
+  // 迁移：将 Antigravity CLI (agy) 并入 Antigravity 分组
+  if (!usedPlatformIds.has('antigravity_cli')) {
+    const antigravityGroup = result.find(
+      (group) =>
+        group.platformIds.includes('antigravity') || group.platformIds.includes('antigravity_ide'),
+    );
+    if (antigravityGroup && !antigravityGroup.platformIds.includes('antigravity_cli')) {
+      antigravityGroup.platformIds = [...antigravityGroup.platformIds, 'antigravity_cli'];
+      antigravityGroup.childConfigs = normalizeGroupChildConfigs(
+        [
+          ...(antigravityGroup.childConfigs ?? []),
+          { platformId: 'antigravity_cli', name: 'Antigravity CLI' },
+        ],
+        antigravityGroup.platformIds,
+      );
+      usedPlatformIds.add('antigravity_cli');
+    }
+  }
+
   if (shouldRestoreDefaultTraeSuiteGroup) {
     const restoredTraeSuiteGroups = restoreDefaultTraeSuiteGroup(result);
     if (restoredTraeSuiteGroups !== result) {
@@ -788,7 +789,9 @@ function buildEntryOrderFromPlatformOrder(
 function findDefaultAntigravityGroup(groups: PlatformLayoutGroup[]): PlatformLayoutGroup | null {
   return groups.find((group) => group.id === DEFAULT_ANTIGRAVITY_GROUP_ID)
     ?? groups.find((group) =>
-      group.platformIds.includes('antigravity') && group.platformIds.includes('antigravity_ide')
+      group.platformIds.includes('antigravity')
+        && (group.platformIds.includes('antigravity_ide')
+          || group.platformIds.includes('antigravity_cli'))
     )
     ?? null;
 }
@@ -1101,9 +1104,6 @@ function normalizeStateData(
     sidebarEntryIds: PlatformLayoutEntryId[];
     antigravityGroupFirstMigrated?: boolean;
     traeSuiteDefaultGroupRestored?: boolean;
-    apiRelaySidebarVisible?: boolean;
-    apiRelayDashboardVisible?: boolean;
-    apiRelayEntryOrder?: number;
   },
   options: {
     allowLegacyTrayMigration?: boolean;
@@ -1156,9 +1156,6 @@ function normalizeStateData(
     antigravityGroupFirstMigrated:
       raw.antigravityGroupFirstMigrated !== false || options.promoteAntigravityGroupEntry === true,
     traeSuiteDefaultGroupRestored: raw.traeSuiteDefaultGroupRestored !== false,
-    apiRelaySidebarVisible: raw.apiRelaySidebarVisible !== false,
-    apiRelayDashboardVisible: raw.apiRelayDashboardVisible !== false,
-    apiRelayEntryOrder: normalizeApiRelayEntryOrder(raw.apiRelayEntryOrder, orderedEntryIds.length),
   };
 }
 
@@ -1180,9 +1177,6 @@ function loadPersistedState(): NormalizedLayoutStateData {
         sidebarEntryIds: defaultSidebarEntryIds(defaultGroups),
         antigravityGroupFirstMigrated: true,
         traeSuiteDefaultGroupRestored: true,
-        apiRelaySidebarVisible: true,
-        apiRelayDashboardVisible: true,
-        apiRelayEntryOrder: 0,
       });
       return defaults;
     }
@@ -1234,9 +1228,6 @@ function loadPersistedState(): NormalizedLayoutStateData {
       sidebarEntryIds,
       antigravityGroupFirstMigrated,
       traeSuiteDefaultGroupRestored: true,
-      apiRelaySidebarVisible: parsed.apiRelaySidebarVisible,
-      apiRelayDashboardVisible: parsed.apiRelayDashboardVisible,
-      apiRelayEntryOrder: parsed.apiRelayEntryOrder,
     }, {
       promoteAntigravityGroupEntry: !antigravityGroupFirstMigrated,
     });
@@ -1259,9 +1250,6 @@ function loadPersistedState(): NormalizedLayoutStateData {
       sidebarEntryIds: defaultSidebarEntryIds(defaultGroups),
       antigravityGroupFirstMigrated: true,
       traeSuiteDefaultGroupRestored: true,
-      apiRelaySidebarVisible: true,
-      apiRelayDashboardVisible: true,
-      apiRelayEntryOrder: 0,
     });
   }
 }
@@ -1280,9 +1268,6 @@ function persist(
     | 'sidebarEntryIds'
     | 'antigravityGroupFirstMigrated'
     | 'traeSuiteDefaultGroupRestored'
-    | 'apiRelaySidebarVisible'
-    | 'apiRelayDashboardVisible'
-    | 'apiRelayEntryOrder'
   >,
 ) {
   try {
@@ -1316,9 +1301,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: nextOrderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1372,9 +1354,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: current,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1382,7 +1361,7 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
     scheduleTrayLayoutSync(next);
   },
 
-  setLayoutEntryOrder: (entryIds, apiRelayEntryOrder) => {
+  setLayoutEntryOrder: (entryIds) => {
     const normalizedEntryIds = normalizeEntryOrder(
       entryIds,
       get().platformGroups,
@@ -1412,9 +1391,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder,
     });
 
     set(next);
@@ -1498,9 +1474,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1523,9 +1496,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: get().orderedEntryIds,
       hiddenEntryIds: nextHidden,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1558,9 +1528,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: get().orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: nextSidebar,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1573,42 +1540,8 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
     get().toggleSidebarEntry(id);
   },
 
-  setApiRelaySidebarVisible: (visible) => {
-    if (get().apiRelaySidebarVisible === visible) {
-      return;
-    }
-    const next = {
-      ...get(),
-      apiRelaySidebarVisible: visible,
-    };
-    set({ apiRelaySidebarVisible: visible });
-    persist(next);
-  },
 
-  setApiRelayDashboardVisible: (visible) => {
-    if (get().apiRelayDashboardVisible === visible) {
-      return;
-    }
-    const next = {
-      ...get(),
-      apiRelayDashboardVisible: visible,
-    };
-    set({ apiRelayDashboardVisible: visible });
-    persist(next);
-  },
 
-  setApiRelayEntryOrder: (order) => {
-    const nextOrder = normalizeApiRelayEntryOrder(order, get().orderedEntryIds.length);
-    if (get().apiRelayEntryOrder === nextOrder) {
-      return;
-    }
-    const next = {
-      ...get(),
-      apiRelayEntryOrder: nextOrder,
-    };
-    set({ apiRelayEntryOrder: nextOrder });
-    persist(next);
-  },
 
   syncSidebarEntriesFromDashboard: () => {
     const hiddenSet = new Set(get().hiddenEntryIds);
@@ -1631,9 +1564,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: get().orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: nextSidebarEntries,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1693,9 +1623,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1726,9 +1653,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1753,9 +1677,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: get().orderedEntryIds,
       hiddenEntryIds: get().hiddenEntryIds,
       sidebarEntryIds: get().sidebarEntryIds,
-      apiRelaySidebarVisible: get().apiRelaySidebarVisible,
-      apiRelayDashboardVisible: get().apiRelayDashboardVisible,
-      apiRelayEntryOrder: get().apiRelayEntryOrder,
     });
 
     set(next);
@@ -1793,9 +1714,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       orderedEntryIds: buildEntryOrderFromPlatformOrder(defaultOrder, defaults),
       hiddenEntryIds: [],
       sidebarEntryIds: defaultSidebarEntryIds(defaults),
-      apiRelaySidebarVisible: true,
-      apiRelayDashboardVisible: true,
-      apiRelayEntryOrder: 0,
     });
 
     set(next);

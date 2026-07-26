@@ -71,6 +71,19 @@ export function isExtraPackage(a: Record<string, unknown>): boolean {
 }
 
 /**
+ * 检查是否为活动/版本/权益等赠送类包（非订阅主档）
+ */
+export function isBonusPackage(a: Record<string, unknown>): boolean {
+  const code = typeof a.PackageCode === 'string' ? a.PackageCode : '';
+  return (
+    code === PACKAGE_CODE.activity ||
+    code === PACKAGE_CODE.versionBonus ||
+    code === PACKAGE_CODE.compensation ||
+    code === PACKAGE_CODE.newUserBonus
+  );
+}
+
+/**
  * 检查是否为试用或免费月包
  */
 export function isTrialOrFreeMonPackage(a: Record<string, unknown>): boolean {
@@ -79,12 +92,50 @@ export function isTrialOrFreeMonPackage(a: Record<string, unknown>): boolean {
 }
 
 /**
- * 检查是否为专业版包
+ * 检查是否为付费订阅包（标准/高级/旗舰/青春）
  */
 export function isProPackage(a: Record<string, unknown>): boolean {
   if (isTrialOrFreeMonPackage(a)) return false;
   const code = typeof a.PackageCode === 'string' ? a.PackageCode : '';
-  return code === PACKAGE_CODE.proMon || code === PACKAGE_CODE.proYear;
+  return (
+    code === PACKAGE_CODE.proMon ||
+    code === PACKAGE_CODE.proYear ||
+    code === PACKAGE_CODE.youthMon ||
+    code === PACKAGE_CODE.premiumMon ||
+    code === PACKAGE_CODE.flagshipMon
+  );
+}
+
+/**
+ * 根据 PackageCode 解析官方档位
+ */
+export function resolvePlanTierFromPackageCode(
+  code: string | null | undefined,
+): {
+  badge: string;
+  tier: 'free' | 'youth' | 'standard' | 'premium' | 'flagship' | 'trial' | 'unknown';
+  isPro: boolean;
+  isTrial: boolean;
+} | null {
+  if (!code) return null;
+  switch (code) {
+    case PACKAGE_CODE.flagshipMon:
+      return { badge: 'FLAGSHIP', tier: 'flagship', isPro: true, isTrial: false };
+    case PACKAGE_CODE.premiumMon:
+      return { badge: 'PREMIUM', tier: 'premium', isPro: true, isTrial: false };
+    case PACKAGE_CODE.proMon:
+    case PACKAGE_CODE.proYear:
+      return { badge: 'STANDARD', tier: 'standard', isPro: true, isTrial: false };
+    case PACKAGE_CODE.youthMon:
+      return { badge: 'YOUTH', tier: 'youth', isPro: true, isTrial: false };
+    case PACKAGE_CODE.gift:
+      return { badge: 'TRIAL', tier: 'trial', isPro: false, isTrial: true };
+    case PACKAGE_CODE.free:
+    case PACKAGE_CODE.freeMon:
+      return { badge: 'FREE', tier: 'free', isPro: false, isTrial: false };
+    default:
+      return null;
+  }
 }
 
 /**
